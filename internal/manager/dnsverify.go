@@ -1,4 +1,4 @@
-package manager // Changed from main
+package manager
 
 import (
 	"context"
@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+// DNSResolver defines the interface for DNS resolution
+type DNSResolver interface {
+	LookupCNAME(ctx context.Context, host string) (string, error)
+}
+
+// DefaultDNSResolver uses the system's default resolver
+type DefaultDNSResolver struct {
+	Resolver *net.Resolver
+}
+
+// LookupCNAME implements the DNSResolver interface using the system resolver
+func (r *DefaultDNSResolver) LookupCNAME(ctx context.Context, host string) (string, error) {
+	return r.Resolver.LookupCNAME(ctx, host)
+}
+
 // VerifyCnameRecord checks if the _acme-challenge CNAME record for the domain
 // points to the expected target (the fulldomain from acme-dns).
 // Exported function
@@ -19,7 +34,8 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 
 	log.Printf("Verifying CNAME record for %s -> %s", challengeDomain, expectedTarget)
 
-	var resolver *net.Resolver
+	var resolver DNSResolver
+
 	if cfg.DnsResolver != "" {
 		log.Printf("Using custom DNS resolver: %s", cfg.DnsResolver)
 		// Ensure the resolver address includes a port
@@ -27,7 +43,8 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 		if !strings.Contains(resolverAddr, ":") {
 			resolverAddr += ":53" // Default DNS port
 		}
-		resolver = &net.Resolver{
+
+		customResolver := &net.Resolver{
 			PreferGo: true, // Use Go's built-in resolver
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{
@@ -37,12 +54,20 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 				return d.DialContext(ctx, "udp", resolverAddr)
 			},
 		}
+		resolver = &DefaultDNSResolver{Resolver: customResolver}
 	} else {
 		log.Printf("Using system default DNS resolver")
 		// Use default resolver
-		resolver = net.DefaultResolver
+		resolver = &DefaultDNSResolver{Resolver: net.DefaultResolver}
 	}
 
+	return VerifyWithResolver(resolver, challengeDomain, expectedTarget)
+}
+
+// VerifyWithResolver performs the actual CNAME verification with the provided resolver
+// This function allows for easier testing with mock resolvers
+// Exported for testing
+func VerifyWithResolver(resolver DNSResolver, challengeDomain string, expectedTarget string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultDNSTimeout*time.Second) // Overall timeout for lookup
 	defer cancel()
 

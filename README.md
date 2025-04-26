@@ -150,7 +150,21 @@ The tool operates in two main modes:
 
 ## Development and Testing
 
-For information on developing, testing, and contributing to this project, please see [DEVELOPMENT.md](DEVELOPMENT.md).
+This project includes a comprehensive testing framework that allows testing both individual components and the entire certificate lifecycle with mock servers. This approach enables testing of ACME DNS and Let's Encrypt interactions without needing actual external services.
+
+For detailed information on:
+- Development practices, see [DEVELOPMENT.md](DEVELOPMENT.md)
+- Testing approach and mock servers, see [TESTING.md](TESTING.md)
+
+### Running Tests
+
+```bash
+# Run unit tests
+make test
+
+# Run all tests including integration tests
+make test-all
+```
 
 ## Cron Job Example (Automatic Mode)
 

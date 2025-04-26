@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Comprehensive integration test framework
+- Mock servers for ACME DNS and Let's Encrypt testing without external dependencies
+- DNS resolver interface for better testability
+- Certificate validation and generation utilities for testing
+- Real-world certificate renewal testing infrastructure
+
+
 ## [0.2.0] - 2025-04-26
 
 
@@ -16,8 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive domain validation for certificate renewals
 - Makefile for common development tasks
 - GitHub Actions workflow for automated testing
-- Integration test framework
-
 ### Changed
 - Removed duplicated DNS provider setup code
 - Improved code organization with better constants

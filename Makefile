@@ -34,10 +34,15 @@ build:
 	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
 	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
 
-# Run all tests
+# Run unit tests (excluding integration tests)
 test:
-	@echo "Running tests..."
+	@echo "Running unit tests..."
 	$(GOTEST) -v ./...
+
+# Run all tests including integration tests
+test-all:
+	@echo "Running all tests (including integration)..."
+	RUN_INTEGRATION_TESTS=1 $(GOTEST) -v ./...
 
 # Run linter
 lint:

@@ -9,16 +9,28 @@ The project follows a standard Go project layout:
 
 ### Running Tests
 
-The project includes comprehensive unit tests. Run them with:
+The project includes comprehensive unit tests and integration tests. For details on the testing approach, refer to [TESTING.md](TESTING.md).
+
+Run basic unit tests with:
 
 ```bash
 make test
 ```
 
+Run all tests including integration tests:
+
+```bash
+make test-all
+```
+
 Or manually:
 
 ```bash
+# Unit tests only
 go test ./...
+
+# All tests including integration tests
+RUN_INTEGRATION_TESTS=1 go test ./...
 ```
 
 ### Code Quality Tools
