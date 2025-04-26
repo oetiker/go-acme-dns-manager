@@ -43,7 +43,7 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 		resolver = net.DefaultResolver
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second) // Overall timeout for lookup
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultDNSTimeout*time.Second) // Overall timeout for lookup
 	defer cancel()
 
 	cname, err := resolver.LookupCNAME(ctx, challengeDomain)

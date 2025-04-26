@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1] - 2025-04-26
+
+### Added
+- Unit tests for critical components
+- Added constants for file permissions and timeouts
+- Comprehensive domain validation for certificate renewals
+- Makefile for common development tasks
+- GitHub Actions workflow for automated testing
+- Integration test framework
+
+### Changed
+- Removed duplicated DNS provider setup code
+- Improved code organization with better constants
+- Enhanced error messages for certificate domain mismatches
 
 ## [0.1.0] - 2025-04-26
 

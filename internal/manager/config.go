@@ -92,8 +92,8 @@ func LoadConfig(path string) (*Config, error) {
 	// Validation for AutoDomains section if present
 	if cfg.AutoDomains != nil {
 		if cfg.AutoDomains.GraceDays <= 0 {
-			cfg.AutoDomains.GraceDays = 30
-			log.Printf("Warning: autoDomains.graceDays not set or invalid in config, defaulting to 30 days.")
+			cfg.AutoDomains.GraceDays = DefaultGraceDays
+			log.Printf("Warning: autoDomains.graceDays not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
 		}
 		if cfg.AutoDomains.Certs == nil || len(cfg.AutoDomains.Certs) == 0 {
 			log.Printf("Warning: autoDomains section found in config, but 'certs' map is empty or missing.")
@@ -231,11 +231,11 @@ func (s *accountStore) SaveAccounts() error {
 	}
 
 	dir := filepath.Dir(s.filePath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, DirPermissions); err != nil {
 		return fmt.Errorf("creating directory %s for accounts file: %w", dir, err)
 	}
 
-	err = os.WriteFile(s.filePath, data, 0600)
+	err = os.WriteFile(s.filePath, data, PrivateKeyPermissions)
 	if err != nil {
 		return fmt.Errorf("writing accounts file %s: %w", s.filePath, err)
 	}
@@ -279,7 +279,7 @@ func (s *accountStore) GetAllAccounts() map[string]AcmeDnsAccount {
 
 // Helper function to get the renewal threshold duration
 func (cfg *Config) GetRenewalThreshold() time.Duration {
-	days := 30 // Default
+	days := DefaultGraceDays
 	if cfg.AutoDomains != nil && cfg.AutoDomains.GraceDays > 0 {
 		days = cfg.AutoDomains.GraceDays
 	}

@@ -148,6 +148,10 @@ The tool operates in two main modes:
     *   The action (`init` or `renew`) is determined automatically based on file existence.
     *   Certificates and the Let's Encrypt account key are saved in the `cert_storage_path`.
 
+## Development and Testing
+
+For information on developing, testing, and contributing to this project, please see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Cron Job Example (Automatic Mode)
 
 To automate initial creation and renewal using the configuration file:

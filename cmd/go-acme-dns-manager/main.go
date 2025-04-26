@@ -222,13 +222,63 @@ func main() {
 				// Should not happen due to earlier parsing checks, but safety first
 				log.Fatalf("Internal Error: Empty domain list for certificate request '%s'", req.Name)
 			} else {
-				// Primary domains match, log a warning if SAN counts differ as we can't easily compare them here.
-				// Note: This comparison might be inaccurate if the loaded JSON doesn't contain DNSNames reliably.
-				// log.Printf("  Primary domain '%s' matches existing certificate.", req.Domains[0])
-				// if len(req.Domains) != len(existingCertData.DNSNames) { // Assuming DNSNames *might* exist but isn't reliable?
-				//	 log.Printf("  Warning: Number of requested domains (%d) differs from number in existing metadata (%d). Full SAN comparison skipped.", len(req.Domains), len(existingCertData.DNSNames))
-				// }
-				log.Printf("  Primary domain '%s' matches existing certificate. Skipping full SAN list comparison.", req.Domains[0])
+				log.Printf("  Primary domain '%s' matches existing certificate.", req.Domains[0])
+
+				// Attempt to load and parse the actual certificate to get the SAN list
+				certPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".crt")
+				certBytes, err := os.ReadFile(certPath)
+				if err == nil {
+					block, _ := pem.Decode(certBytes)
+					if block != nil {
+						cert, err := x509.ParseCertificate(block.Bytes)
+						if err == nil {
+							// Compare requested domains with certificate SAN list
+							// Create maps for easier comparison
+							existingDomainsMap := make(map[string]bool)
+							for _, domain := range cert.DNSNames {
+								existingDomainsMap[domain] = true
+							}
+
+							requestedDomainsMap := make(map[string]bool)
+							for _, domain := range req.Domains {
+								requestedDomainsMap[domain] = true
+							}
+
+							// Check for differences
+							var missingDomains, extraDomains []string
+							for _, domain := range req.Domains {
+								if !existingDomainsMap[domain] {
+									missingDomains = append(missingDomains, domain)
+								}
+							}
+
+							for _, domain := range cert.DNSNames {
+								if !requestedDomainsMap[domain] {
+									extraDomains = append(extraDomains, domain)
+								}
+							}
+
+							if len(missingDomains) > 0 || len(extraDomains) > 0 {
+								log.Printf("  Warning: Domain list differences detected for certificate '%s':", req.Name)
+								if len(missingDomains) > 0 {
+									log.Printf("    - New domains that will be added: %v", missingDomains)
+								}
+								if len(extraDomains) > 0 {
+									log.Printf("    - Domains in existing cert that will be removed: %v", extraDomains)
+								}
+								log.Printf("  If this is not intended, please use a different certificate name.")
+							} else {
+								log.Printf("  All domains match between requested domains and existing certificate.")
+							}
+						} else {
+							log.Printf("  Warning: Could not parse certificate from %s: %v. Skipping SAN comparison.", certPath, err)
+						}
+					} else {
+						log.Printf("  Warning: Failed to decode PEM block from %s. Skipping SAN comparison.", certPath)
+					}
+				} else {
+					log.Printf("  Warning: Could not read certificate file %s: %v. Skipping SAN comparison.", certPath, err)
+				}
 
 			}
 

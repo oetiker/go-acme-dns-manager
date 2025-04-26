@@ -41,7 +41,7 @@ func (u *MyUser) GetPrivateKey() crypto.PrivateKey {
 func createOrLoadUser(cfg *Config) (*MyUser, error) {
 	// Determine storage path relative to config file
 	storageDir := cfg.CertStoragePath // Use renamed field
-	if err := os.MkdirAll(storageDir, 0700); err != nil {
+	if err := os.MkdirAll(storageDir, DirPermissions); err != nil {
 		return nil, fmt.Errorf("creating cert storage directory %s: %w", storageDir, err)
 	}
 
@@ -79,7 +79,7 @@ func createOrLoadUser(cfg *Config) (*MyUser, error) {
 		// if err != nil {
 		// 	return nil, fmt.Errorf("encoding private key: %w", err)
 		// }
-		if err = os.WriteFile(keyFilePath, keyBytes, 0600); err != nil {
+		if err = os.WriteFile(keyFilePath, keyBytes, PrivateKeyPermissions); err != nil {
 			return nil, fmt.Errorf("saving private key to %s: %w", keyFilePath, err)
 		}
 		log.Printf("Saved new private key to %s", keyFilePath)
@@ -134,7 +134,7 @@ func saveUser(cfg *Config, user *MyUser) error {
 		return fmt.Errorf("marshalling registration resource: %w", err)
 	}
 
-	err = os.WriteFile(accountFilePath, regBytes, 0600)
+	err = os.WriteFile(accountFilePath, regBytes, PrivateKeyPermissions)
 	if err != nil {
 		return fmt.Errorf("writing account file %s: %w", accountFilePath, err)
 	}
@@ -183,30 +183,10 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 		return fmt.Errorf("failed to set ACME_DNS_STORAGE_PATH env var: %w", err)
 	}
 
-	// We can use the default provider which reads the env vars we just set.
-	// Alternatively, use NewDNSProviderConfig if we need to override TTL etc.
-	// Using NewDNSProviderConfig also reads the env vars but allows overriding StoragePath.
-	// providerConfig := acmedns.NewDefaultConfig() // Removed unused variable
-	// providerConfig.StoragePath = cfg.configPath // This tells lego where to find the acme_dns_accounts section
-
-	// Let's use the simpler NewDNSProvider() which reads the env vars directly
+	// Create the DNS provider using the environment variables we've set
 	provider, err := acmedns.NewDNSProvider()
 	if err != nil {
 		return fmt.Errorf("failed to create acme-dns provider: %w", err)
-	}
-
-	// If we needed TTL/PropagationTimeout overrides, we'd use NewDNSProviderConfig:
-	// providerConfig := acmedns.NewDefaultConfig()
-	// providerConfig.PropagationTimeout = 2 * time.Minute // Example override
-	// providerConfig.TTL = 60 // Example override
-	// provider, err := acmedns.NewDNSProviderConfig(providerConfig) // This still reads BASE from env
-	// if err != nil {
-	//	 return fmt.Errorf("failed to create acme-dns provider with config: %w", err)
-	// }
-
-	err = client.Challenge.SetDNS01Provider(provider)
-	if err != nil {
-		return fmt.Errorf("failed to set DNS01 provider: %w", err)
 	}
 
 	err = client.Challenge.SetDNS01Provider(provider)
@@ -316,7 +296,7 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 // saveCertificates saves the obtained certificate files using the certName.
 func saveCertificates(cfg *Config, certName string, resource *certificate.Resource) error {
 	certsDir := filepath.Join(cfg.CertStoragePath, "certificates") // Use renamed field
-	if err := os.MkdirAll(certsDir, 0700); err != nil {
+	if err := os.MkdirAll(certsDir, DirPermissions); err != nil {
 		return fmt.Errorf("creating certificates directory %s: %w", certsDir, err)
 	}
 
@@ -333,13 +313,13 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 		resource.Domain = certName // Or maybe the first domain from the request? Let's stick to certName for consistency.
 	}
 
-	err := os.WriteFile(certFile, resource.Certificate, 0644)
+	err := os.WriteFile(certFile, resource.Certificate, CertificatePermissions)
 	if err != nil {
 		return fmt.Errorf("writing certificate file %s: %w", certFile, err)
 	}
 	log.Printf("Saved certificate to %s", certFile)
 
-	err = os.WriteFile(keyFile, resource.PrivateKey, 0600)
+	err = os.WriteFile(keyFile, resource.PrivateKey, PrivateKeyPermissions)
 	if err != nil {
 		return fmt.Errorf("writing private key file %s: %w", keyFile, err)
 	}
@@ -347,7 +327,7 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 
 	// Save issuer certificate if present
 	if len(resource.IssuerCertificate) > 0 {
-		err = os.WriteFile(issuerFile, resource.IssuerCertificate, 0644)
+		err = os.WriteFile(issuerFile, resource.IssuerCertificate, CertificatePermissions)
 		if err != nil {
 			// Non-fatal, just log
 			log.Printf("Warning: writing issuer certificate file %s: %v", issuerFile, err)
@@ -362,7 +342,7 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 		// Use certName in the error message
 		return fmt.Errorf("marshalling certificate metadata for %s: %w", certName, err)
 	}
-	err = os.WriteFile(jsonFile, jsonBytes, 0600)
+	err = os.WriteFile(jsonFile, jsonBytes, PrivateKeyPermissions)
 	if err != nil {
 		return fmt.Errorf("writing certificate metadata file %s: %w", jsonFile, err)
 	}
