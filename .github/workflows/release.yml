@@ -12,6 +12,9 @@ on:
         default: false
         type: boolean
 
+env:
+  PROJECT_NAME: go-acme-dns-manager
+
 permissions:
   contents: write
 
@@ -87,17 +90,15 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -o response-analyzer${{ matrix.extension }} ./cmd/response-analyzer
+          go build -o ${{ env.PROJECT_NAME }}${{ matrix.extension }} ./cmd/${{ env.PROJECT_NAME }}
 
       - name: Prepare package
         run: |
           mkdir -p release-package
-          cp response-analyzer${{ matrix.extension }} release-package/
-          cp config-sample.yaml release-package/
+          cp ${{ env.PROJECT_NAME }}${{ matrix.extension }} release-package/
+          # Copy the default config as config-sample.yaml
+          cp config.yaml release-package/config-sample.yaml 
           cp README.md release-package/
-          cp ROADMAP.md release-package/
-          cp report-template.tmpl release-package/
-          cp report-template-en.tmpl release-package/
           cp LICENSE release-package/ || echo "No LICENSE file found"
           cp CHANGES.md release-package/
 
@@ -105,20 +106,20 @@ jobs:
         run: |
           if [ "${{ matrix.archive }}" = "zip" ]; then
             cd release-package
-            zip -r ../response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
+            zip -r ../${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
             cd ..
           else
             cd release-package
-            tar -czvf ../response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz .
+            tar -czvf ../${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz .
             cd ..
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: response-analyzer-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+            ${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
 
   create-release:
     needs: build
@@ -139,7 +140,7 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           files: |
-            **/response-analyzer-${{ github.event.inputs.version }}-*.zip
-            **/response-analyzer-${{ github.event.inputs.version }}-*.tar.gz
+            **/${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-*.zip
+            **/${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
