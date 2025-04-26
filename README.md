@@ -1,6 +1,6 @@
 # Go ACME DNS Manager
 
-This tool automates the process of obtaining and renewing Let's Encrypt certificates using the DNS-01 challenge with an `acme-dns` server. It is a Go application designed to replace the previous Python script (`acme-dns-manager.py`) and directly integrates the `go-acme/lego` library, removing dependencies on external tools like `dig` and `podman`.
+This tool automates the process of obtaining and renewing Let's Encrypt certificates using the DNS-01 challenge with an `acme-dns` server. It is a Go application and directly integrates the `go-acme/lego` library.
 
 ## Features
 
