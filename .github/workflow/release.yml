@@ -1,0 +1,145 @@
+name: Build and Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Is this a prerelease?'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Update CHANGES.md
+        run: |
+          set -euo pipefail
+          # Get current date in YYYY-MM-DD format
+          RELEASE_DATE=$(date +%Y-%m-%d)
+          
+          # Extract version number without 'v' prefix for CHANGES.md
+          VERSION_NO_V=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
+          
+          # Update CHANGES.md - Move Unreleased changes to new version section
+          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION_NO_V}] - ${RELEASE_DATE}/" CHANGES.md
+          
+          echo "Updated CHANGES.md for version ${VERSION_NO_V}"
+
+      - name: Commit and Create tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Commit CHANGES.md update
+          git add CHANGES.md
+          git commit -m "Update CHANGES.md for release ${{ github.event.inputs.version }}"
+          
+          # Create and push tag
+          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
+          git push origin main
+          git push origin ${{ github.event.inputs.version }}
+
+  build:
+    needs: create-tag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        include:
+          - goos: windows
+            extension: .exe
+            archive: zip
+          - goos: linux
+            extension: ""
+            archive: tar.gz
+          - goos: darwin
+            extension: ""
+            archive: tar.gz
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -o response-analyzer${{ matrix.extension }} ./cmd/response-analyzer
+
+      - name: Prepare package
+        run: |
+          mkdir -p release-package
+          cp response-analyzer${{ matrix.extension }} release-package/
+          cp config-sample.yaml release-package/
+          cp README.md release-package/
+          cp ROADMAP.md release-package/
+          cp report-template.tmpl release-package/
+          cp report-template-en.tmpl release-package/
+          cp LICENSE release-package/ || echo "No LICENSE file found"
+          cp CHANGES.md release-package/
+
+      - name: Create archive
+        run: |
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cd release-package
+            zip -r ../response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
+            cd ..
+          else
+            cd release-package
+            tar -czvf ../response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz .
+            cd ..
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: response-analyzer-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            response-analyzer-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: List artifacts
+        run: find . -type f
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: |
+            **/response-analyzer-${{ github.event.inputs.version }}-*.zip
+            **/response-analyzer-${{ github.event.inputs.version }}-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
