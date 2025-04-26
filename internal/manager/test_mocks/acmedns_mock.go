@@ -78,7 +78,9 @@ func (m *MockAcmeDnsServer) handleRegister(w http.ResponseWriter, r *http.Reques
 	// Return the account data
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(account)
+	if err := json.NewEncoder(w).Encode(account); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleUpdate handles the /update endpoint
@@ -121,7 +123,9 @@ func (m *MockAcmeDnsServer) handleUpdate(w http.ResponseWriter, r *http.Request)
 	// Success response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"txt": updateReq.Txt})
+	if err := json.NewEncoder(w).Encode(map[string]string{"txt": updateReq.Txt}); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // GetTXTRecord returns the stored TXT record for a domain

@@ -95,7 +95,7 @@ func LoadConfig(path string) (*Config, error) {
 			cfg.AutoDomains.GraceDays = DefaultGraceDays
 			log.Printf("Warning: autoDomains.graceDays not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
 		}
-		if cfg.AutoDomains.Certs == nil || len(cfg.AutoDomains.Certs) == 0 {
+		if len(cfg.AutoDomains.Certs) == 0 {
 			log.Printf("Warning: autoDomains section found in config, but 'certs' map is empty or missing.")
 		}
 		for name, cert := range cfg.AutoDomains.Certs {

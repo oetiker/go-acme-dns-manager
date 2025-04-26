@@ -220,9 +220,8 @@ func checkCertificateNeedsRenewal(t *testing.T, certPath string, renewalThreshol
 	if err != nil {
 		return false, err
 	}
-
 	// Calculate time until expiry
-	timeUntilExpiry := certInfo.NotAfter.Sub(time.Now())
+	timeUntilExpiry := time.Until(certInfo.NotAfter)
 
 	// If expiry is within threshold, it needs renewal
 	needsRenewal := timeUntilExpiry <= renewalThreshold

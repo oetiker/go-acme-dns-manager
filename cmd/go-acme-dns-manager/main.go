@@ -172,7 +172,7 @@ func main() {
 		}
 	} else { // Auto Mode
 		log.Println("Mode: Automatic") // Update log message
-		if cfg.AutoDomains == nil || cfg.AutoDomains.Certs == nil || len(cfg.AutoDomains.Certs) == 0 {
+		if cfg.AutoDomains == nil || len(cfg.AutoDomains.Certs) == 0 {
 			log.Println("No certificates defined in 'autoDomains.certs' section of the config file. Nothing to do.")
 			os.Exit(0)
 		}

@@ -77,7 +77,9 @@ func (m *MockAcmeServer) handleDirectory(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(directory)
+	if err := json.NewEncoder(w).Encode(directory); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleNewAccount handles new account registration
@@ -95,7 +97,9 @@ func (m *MockAcmeServer) handleNewAccount(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Location", m.Server.URL+"/acct/"+accountID)
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(m.accounts[accountID])
+	if err := json.NewEncoder(w).Encode(m.accounts[accountID]); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleNewOrder handles new order creation
@@ -152,7 +156,9 @@ func (m *MockAcmeServer) handleNewOrder(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Location", m.Server.URL+"/order/"+orderID)
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(order)
+	if err := json.NewEncoder(w).Encode(order); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleChallenge processes a challenge submission
@@ -183,7 +189,9 @@ func (m *MockAcmeServer) handleChallenge(w http.ResponseWriter, r *http.Request)
 		"status": "valid",
 		"type":   "dns-01",
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleFinalizeOrder creates a certificate for the order
@@ -218,7 +226,9 @@ func (m *MockAcmeServer) handleFinalizeOrder(w http.ResponseWriter, r *http.Requ
 	m.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	if err := json.NewEncoder(w).Encode(order); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 // handleCertificate serves the mock certificate
@@ -239,7 +249,10 @@ func (m *MockAcmeServer) handleCertificate(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/pem-certificate-chain")
-	w.Write(certPEM)
+	_, err := w.Write(certPEM)
+	if err != nil {
+		http.Error(w, "Error writing response", http.StatusInternalServerError)
+	}
 }
 
 // generateMockCertificate creates a self-signed cert for testing
