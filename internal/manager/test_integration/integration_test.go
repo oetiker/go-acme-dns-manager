@@ -1,4 +1,4 @@
-package manager_test
+package test_integration
 
 import (
 	"os"
@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/oetiker/go-acme-dns-manager/internal/manager"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/testdata/mocks"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/testdata/test_helpers"
+	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_helpers"
+	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_mocks"
 )
 
 // TestEndToEndFlow tests the full certificate flow using mock servers
@@ -19,11 +19,11 @@ func TestEndToEndFlow(t *testing.T) {
 	}
 
 	// Start mock ACME DNS server
-	mockAcmeDns := mocks.NewMockAcmeDnsServer()
+	mockAcmeDns := test_mocks.NewMockAcmeDnsServer()
 	defer mockAcmeDns.Close()
 
 	// Start mock ACME server
-	mockAcme := mocks.NewMockAcmeServer()
+	mockAcme := test_mocks.NewMockAcmeServer()
 	defer mockAcme.Close()
 
 	// Create a temporary directory for test data
@@ -81,7 +81,7 @@ cert_storage_path: "` + tempDir + `"
 	}
 
 	// 3. Create a mock DNS resolver
-	mockResolver := mocks.NewMockDNSResolver()
+	mockResolver := test_mocks.NewMockDNSResolver()
 	mockResolver.AddCNAMERecord("_acme-challenge."+testDomain, newAccount.FullDomain)
 
 	// 4. Run Lego to obtain a certificate

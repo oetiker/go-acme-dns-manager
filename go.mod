@@ -1,6 +1,8 @@
 module github.com/oetiker/go-acme-dns-manager
 
-go 1.21
+go 1.23.0
+
+toolchain go1.24.2
 
 require (
 	github.com/go-acme/lego/v4 v4.23.1

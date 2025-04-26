@@ -1,4 +1,4 @@
-package manager_test
+package test_integration
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/oetiker/go-acme-dns-manager/internal/manager"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/testdata/test_helpers"
+	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_helpers"
 )
 
 // TestCertificateRenewal tests the certificate renewal logic

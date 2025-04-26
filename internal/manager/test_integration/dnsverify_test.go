@@ -1,16 +1,17 @@
-package manager_test
+package test_integration
 
 import (
 	"net"
 	"testing"
 
 	"github.com/oetiker/go-acme-dns-manager/internal/manager"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/testdata/mocks"
+	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_mocks"
 )
 
+// TestDNSVerification tests the DNS verification functionality with a mock resolver
 func TestDNSVerification(t *testing.T) {
 	// Create a mock DNS resolver
-	mockResolver := mocks.NewMockDNSResolver()
+	mockResolver := test_mocks.NewMockDNSResolver()
 
 	// Add test records
 	mockResolver.AddCNAMERecord("_acme-challenge.example.com", "valid.acme-dns.example.org")

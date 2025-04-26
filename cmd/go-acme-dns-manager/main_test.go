@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/oetiker/go-acme-dns-manager/internal/manager"
 )
 
 func TestParseCertArg(t *testing.T) {
@@ -138,20 +140,24 @@ cert_storage_path: ".lego-test"
 	}
 	tempFile.Close()
 
-	// Run with --print-config-template which is safe to test
-	os.Args = []string{"cmd", "--print-config-template"}
+	// Don't call main() directly as it calls os.Exit()
+	// Instead we'll just test a small part of the functionality directly
 
-	// Capture stdout to prevent mess in test output
-	oldStdout := os.Stdout
-	_, w, _ := os.Pipe()
-	os.Stdout = w
+	// Create a test config file
+	config, err := manager.LoadConfig(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to load test config: %v", err)
+	}
 
-	// This should exit by itself - we're just testing it doesn't crash
-	// In a real integration test you'd use a custom main() function that
-	// doesn't exit but returns errors instead
-	main()
+	// Verify the config was loaded correctly
+	if config.Email != "test@example.com" {
+		t.Errorf("Expected email to be test@example.com, got %s", config.Email)
+	}
 
-	// Restore stdout (though we don't reach this in the current implementation)
-	w.Close()
-	os.Stdout = oldStdout
+	if config.AcmeServer != "https://acme-staging-v02.api.letsencrypt.org/directory" {
+		t.Errorf("Expected ACME server URL to be the staging one, got %s", config.AcmeServer)
+	}
+
+	// Test successful
+	t.Log("Integration test passed")
 }
