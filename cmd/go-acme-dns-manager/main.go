@@ -20,19 +20,44 @@ import (
 type certRequest struct {
 	Name    string
 	Domains []string
+	KeyType string
 }
 
 var (
 	configPath          = flag.String("config", "config.yaml", "Path to the configuration file")
-	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'autoDomains' config section (handles init and renew)")
+	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'auto_domains' config section (handles init and renew)")
 	printConfigTemplate = flag.Bool("print-config-template", false, "Print a default configuration template to stdout and exit")
+	migrateAccounts     = flag.Bool("migrate-accounts", false, "Migrate accounts from old format (account.json/account.key) to new server-specific directory structure")
 )
 
-// Helper function to parse cert-name@domain1,domain2 syntax
-func parseCertArg(arg string) (string, []string, error) {
-	parts := strings.SplitN(arg, "@", 2)
+// Helper function to parse cert-name@domain1,domain2/key_type=ec384 syntax
+// This function is used for testing purposes only now
+func parseCertArg(arg string) (string, []string, string, error) {
+	// Check for key_type parameter
+	keyType := ""
+	domainPart := arg
+
+	if strings.Contains(arg, "/") {
+		argParts := strings.Split(arg, "/")
+		domainPart = argParts[0]
+
+		// Process any parameters after the slash
+		for i := 1; i < len(argParts); i++ {
+			param := argParts[i]
+			if strings.HasPrefix(param, "key_type=") {
+				keyType = strings.TrimPrefix(param, "key_type=")
+				log.Printf("Found key_type parameter: %s", keyType)
+			} else {
+				log.Printf("Warning: Unknown parameter in certificate spec: %s", param)
+				// This doesn't make the command fail, just a warning
+			}
+		}
+	}
+
+	// Process the domain part
+	parts := strings.SplitN(domainPart, "@", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", nil, fmt.Errorf("invalid format: expected 'cert-name@domain1,domain2,...', got '%s'", arg)
+		return "", nil, "", fmt.Errorf("invalid format: expected 'cert-name@domain1,domain2,...', got '%s'", domainPart)
 	}
 	certName := parts[0]
 	domains := []string{}
@@ -44,27 +69,28 @@ func parseCertArg(arg string) (string, []string, error) {
 		}
 	}
 	if len(domains) == 0 {
-		return "", nil, fmt.Errorf("no valid domains found after '@' in argument '%s'", arg)
+		return "", nil, "", fmt.Errorf("no valid domains found after '@' in argument '%s'", domainPart)
 	}
 	// Basic validation for cert name (adjust regex as needed for stricter rules)
 	// For now, just check it's not empty and doesn't contain problematic chars like '/' or '\'
 	if strings.ContainsAny(certName, "/\\") {
-		return "", nil, fmt.Errorf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
+		return "", nil, "", fmt.Errorf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
 	}
 
-	return certName, domains, nil
+	return certName, domains, keyType, nil
 }
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [cert-name@domain1,domain2... [cert-name2@domain3...]]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [cert-name@domain1,domain2.../key_type=TYPE... [cert-name2@domain3...]]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  Manages ACME certificates using acme-dns.\n\n")
 		fmt.Fprintf(os.Stderr, "Modes:\n")
 		fmt.Fprintf(os.Stderr, "  Manual Mode: Provide one or more certificate requests as arguments.\n")
-		fmt.Fprintf(os.Stderr, "             Example: %s -config my.yaml cert1@example.com,www.example.com cert2@service.example.com\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  Automatic Mode: Use the -auto flag (no certificate arguments allowed).\n") // Updated help text
-		fmt.Fprintf(os.Stderr, "                  Processes certificates defined in the 'autoDomains' section of the config file (handles init and renew).\n")
+		fmt.Fprintf(os.Stderr, "             Example: %s -config my.yaml cert1@example.com,www.example.com/key_type=ec384 cert2@service.example.com\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  Automatic Mode: Use the -auto flag (no certificate arguments allowed).\n")
+		fmt.Fprintf(os.Stderr, "                  Processes certificates defined in the 'auto_domains' section of the config file (handles init and renew).\n")
 		fmt.Fprintf(os.Stderr, "             Example: %s -config my.yaml -auto\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  Key Types: rsa2048, rsa3072, rsa4096, ec256, ec384\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 	}
@@ -78,20 +104,6 @@ func main() {
 			log.Fatalf("Error printing config template: %v", err)
 		}
 		os.Exit(0)
-	}
-
-	// --- Mode Determination ---
-	positionalArgs := flag.Args()
-	isManualMode := len(positionalArgs) > 0
-	isAutoMode := *autoMode // Use renamed flag variable
-
-	if isManualMode && isAutoMode {
-		log.Fatal("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
-	}
-	if !isManualMode && !isAutoMode {
-		fmt.Fprintf(os.Stderr, "Error: No operation specified. Provide certificate arguments or use -auto flag.\n\n")
-		flag.Usage()
-		os.Exit(1)
 	}
 
 	// --- Config Loading ---
@@ -124,6 +136,20 @@ func main() {
 	}
 	fmt.Println("Configuration loaded successfully.")
 
+	// --- Mode Determination ---
+	positionalArgs := flag.Args()
+	isManualMode := len(positionalArgs) > 0
+	isAutoMode := *autoMode // Use renamed flag variable
+
+	if isManualMode && isAutoMode {
+		log.Fatal("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
+	}
+	if !isManualMode && !isAutoMode && !*migrateAccounts {
+		fmt.Fprintf(os.Stderr, "Error: No operation specified. Provide certificate arguments or use -auto flag.\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	// --- Account Store Initialization ---
 	accountsFilePath := filepath.Join(cfg.CertStoragePath, "acme-dns-accounts.json") // Use renamed field
 	fmt.Printf("Loading ACME DNS accounts from %s...\n", accountsFilePath)
@@ -142,19 +168,47 @@ func main() {
 		for _, arg := range positionalArgs {
 			var certName string
 			var domains []string
-			var err error
+			var keyType string
+			// First check if the arg contains key_type parameter
+			var domainPart string
+			if strings.Contains(arg, "/") {
+				parts := strings.Split(arg, "/")
+				domainPart = parts[0]
 
-			if strings.Contains(arg, "@") {
+				// Extract key_type if present
+				for i := 1; i < len(parts); i++ {
+					param := parts[i]
+					if strings.HasPrefix(param, "key_type=") {
+						keyType = strings.TrimPrefix(param, "key_type=")
+						log.Printf("Found key_type parameter: %s", keyType)
+					} else {
+						log.Printf("Warning: Unknown parameter in certificate spec: %s", param)
+					}
+				}
+			} else {
+				domainPart = arg
+			}
+
+			if strings.Contains(domainPart, "@") {
 				// Use explicit format: cert-name@domain1,domain2,...
-				certName, domains, err = parseCertArg(arg)
-				if err != nil {
-					log.Fatalf("Error parsing argument '%s': %v", arg, err)
+				parts := strings.SplitN(domainPart, "@", 2)
+				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+					log.Fatalf("Error: Invalid certificate format '%s'. Expected 'name@domain.com'", domainPart)
+				}
+				certName = parts[0]
+				domains = []string{}
+				rawDomains := strings.Split(parts[1], ",")
+				for _, d := range rawDomains {
+					trimmed := strings.TrimSpace(d)
+					if trimmed != "" {
+						domains = append(domains, trimmed)
+					}
 				}
 			} else {
 				// Use shorthand: treat arg as both cert name and single domain
-				certName = arg
-				domains = []string{arg}
-				log.Printf("Interpreting argument '%s' as shorthand for '%s@%s'", arg, certName, certName)
+				certName = domainPart
+				domains = []string{domainPart}
+				log.Printf("Interpreting argument '%s' as shorthand for '%s@%s'", domainPart, certName, certName)
 				// Basic validation for shorthand name
 				if strings.ContainsAny(certName, "/\\") {
 					log.Fatalf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
@@ -167,19 +221,22 @@ func main() {
 			if _, exists := requestedNames[certName]; exists {
 				log.Fatalf("Error: Duplicate certificate name specified or implied in arguments: '%s'", certName)
 			}
-			requests = append(requests, certRequest{Name: certName, Domains: domains})
+			requests = append(requests, certRequest{Name: certName, Domains: domains, KeyType: keyType})
 			requestedNames[certName] = struct{}{}
 		}
 	} else { // Auto Mode
 		log.Println("Mode: Automatic") // Update log message
 		if cfg.AutoDomains == nil || len(cfg.AutoDomains.Certs) == 0 {
-			log.Println("No certificates defined in 'autoDomains.certs' section of the config file. Nothing to do.")
+			log.Println("No certificates defined in 'auto_domains.certs' section of the config file. Nothing to do.")
 			os.Exit(0)
 		}
 		log.Printf("Processing %d certificate definition(s) from config file...", len(cfg.AutoDomains.Certs))
 		for name, certDef := range cfg.AutoDomains.Certs {
 			// Basic validation already done in LoadConfig
-			requests = append(requests, certRequest{Name: name, Domains: certDef.Domains})
+			requests = append(requests, certRequest{Name: name, Domains: certDef.Domains, KeyType: certDef.KeyType})
+			if certDef.KeyType != "" {
+				log.Printf("Certificate %s will use key type: %s", name, certDef.KeyType)
+			}
 			// No need to check for duplicate names here as map keys are unique
 		}
 	}
@@ -387,7 +444,11 @@ func main() {
 
 		// 2. Run Lego action
 		log.Printf("Proceeding with Lego action '%s' for certificate '%s'...", action, certName)
-		err = manager.RunLego(cfg, store, action, certName, domains) // Pass certName now
+		keyType := task.Request.KeyType
+		if keyType != "" {
+			log.Printf("Using specified key type for certificate: %s", keyType)
+		}
+		err = manager.RunLego(cfg, store, action, certName, domains, keyType) // Pass certName and keyType
 		if err != nil {
 			log.Printf("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
 			anyFailure = true

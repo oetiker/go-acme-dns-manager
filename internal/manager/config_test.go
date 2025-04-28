@@ -20,13 +20,13 @@ func TestLoadConfig(t *testing.T) {
 	configContent := []byte(`
 email: "test@example.com"
 acme_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
-key_type: "ec256"
 acme_dns_server: "https://acme-dns.example.com"
 cert_storage_path: ".lego"
-autoDomains:
-  graceDays: 30
+auto_domains:
+  grace_days: 30
   certs:
     test-cert:
+      key_type: "ec256"
       domains:
         - example.com
         - www.example.com
@@ -49,16 +49,22 @@ autoDomains:
 	if cfg.AcmeServer != "https://acme-staging-v02.api.letsencrypt.org/directory" {
 		t.Errorf("Expected AcmeServer to be 'https://acme-staging-v02.api.letsencrypt.org/directory', got '%s'", cfg.AcmeServer)
 	}
-	if cfg.KeyType != "ec256" {
-		t.Errorf("Expected KeyType to be 'ec256', got '%s'", cfg.KeyType)
-	}
 
-	// Test autoDomains parsing
+	// Test auto_domains parsing
 	if cfg.AutoDomains == nil {
 		t.Fatal("Expected AutoDomains to be non-nil")
 	}
 	if cfg.AutoDomains.GraceDays != 30 {
 		t.Errorf("Expected AutoDomains.GraceDays to be 30, got %d", cfg.AutoDomains.GraceDays)
+	}
+
+	// Test certificate-specific key type
+	cert, exists := cfg.AutoDomains.Certs["test-cert"]
+	if !exists {
+		t.Fatal("Expected to find test-cert in auto_domains.certs")
+	}
+	if cert.KeyType != "ec256" {
+		t.Errorf("Expected test-cert key_type to be 'ec256', got '%s'", cert.KeyType)
 	}
 	if len(cfg.AutoDomains.Certs) != 1 {
 		t.Fatalf("Expected 1 cert in AutoDomains.Certs, got %d", len(cfg.AutoDomains.Certs))

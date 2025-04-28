@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed global `key_type` configuration option
+- Added per-certificate `key_type` configuration in both CLI and config file
+- Changed config naming to use consistent snake_case: `autoDomains` → `auto_domains`, `graceDays` → `grace_days`
+- Improved certificate request parsing to support `/key_type=<type>` syntax
+- Fixed account key storage path to follow Lego conventions with server-specific directories
+- Fixed key type mapping to use proper Lego cryptographic constants
+- Enhanced command-line interface to better handle certificate arguments with parameters
+
 ## [0.2.1] - 2025-04-26
 
 ### Added

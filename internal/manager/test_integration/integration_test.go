@@ -89,7 +89,7 @@ cert_storage_path: "` + tempDir + `"
 	domains := []string{testDomain}
 
 	// Use the test_helpers.MockLegoRun function directly instead of the real RunLego
-	err = test_helpers.MockLegoRun(cfg, store, "init", certName, domains)
+	err = test_helpers.MockLegoRun(cfg, store, "init", certName, domains, "ec256")
 	if err != nil {
 		t.Fatalf("Failed to run mock Lego: %v", err)
 	}
@@ -111,7 +111,7 @@ cert_storage_path: "` + tempDir + `"
 	// First, let's wait a moment
 	time.Sleep(time.Second)
 
-	err = test_helpers.MockLegoRun(cfg, store, "renew", certName, domains)
+	err = test_helpers.MockLegoRun(cfg, store, "renew", certName, domains, "ec256")
 	if err != nil {
 		t.Fatalf("Failed to renew certificate: %v", err)
 	}

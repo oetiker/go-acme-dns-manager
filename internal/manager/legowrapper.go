@@ -5,10 +5,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os" // Added for Setenv
 	"path/filepath"
 	"time"
@@ -40,61 +40,69 @@ func (u *MyUser) GetPrivateKey() crypto.PrivateKey {
 // createOrLoadUser creates a new ACME user or loads an existing one from storage.
 func createOrLoadUser(cfg *Config) (*MyUser, error) {
 	// Determine storage path relative to config file
-	storageDir := cfg.CertStoragePath // Use renamed field
-	if err := os.MkdirAll(storageDir, DirPermissions); err != nil {
-		return nil, fmt.Errorf("creating cert storage directory %s: %w", storageDir, err)
+	baseStorageDir := cfg.CertStoragePath
+
+	// Extract ACME server hostname from URL to create server-specific directory
+	acmeURL, urlErr := url.Parse(cfg.AcmeServer)
+	if urlErr != nil {
+		return nil, fmt.Errorf("failed to parse ACME server URL: %w", urlErr)
 	}
 
-	accountFilePath := filepath.Join(storageDir, "account.json")
-	keyFilePath := filepath.Join(storageDir, "account.key")
+	// Create Lego-style account path structure
+	accountsBaseDir := filepath.Join(baseStorageDir, "accounts")
+	serverDir := filepath.Join(accountsBaseDir, acmeURL.Host)
+	emailDir := filepath.Join(serverDir, cfg.Email)
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(emailDir, DirPermissions); err != nil {
+		return nil, fmt.Errorf("creating account directory %s: %w", emailDir, err)
+	}
+
+	// Set paths for account file and key (using Lego's exact naming conventions)
+	accountFilePath := filepath.Join(serverDir, "account.json")
+
+	// Keys are stored in a subdirectory with email as filename
+	keysDir := filepath.Join(emailDir, "keys")
+	if err := os.MkdirAll(keysDir, DirPermissions); err != nil {
+		return nil, fmt.Errorf("creating keys directory %s: %w", keysDir, err)
+	}
+	keyFilePath := filepath.Join(keysDir, cfg.Email+".key")
 
 	var privateKey crypto.PrivateKey
-	var err error
 
-	// Check if key file exists
-	if _, err = os.Stat(keyFilePath); os.IsNotExist(err) {
-		log.Printf("Generating new private key (%s) for ACME account", cfg.KeyType)
-		// Generate new key based on config
-		switch cfg.KeyType {
-		case "rsa2048":
-			privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
-		case "rsa4096":
-			privateKey, err = rsa.GenerateKey(rand.Reader, 4096)
-		case "rsa8192":
-			privateKey, err = rsa.GenerateKey(rand.Reader, 8192)
-		case "ec256":
-			privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		case "ec384":
-			privateKey, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-		default:
-			return nil, fmt.Errorf("unsupported key type: %s", cfg.KeyType)
+	// Check if key file exists (in the new location first, then fall back to old location)
+	if _, err := os.Stat(keyFilePath); os.IsNotExist(err) {
+
+		// Neither exists, create a new key
+		accountKeyType := "ec384" // Always use EC384 for account keys
+		log.Printf("Generating new private key (%s) for ACME account", accountKeyType)
+
+		// Generate new key for account (always ec384 for best security/performance)
+		var keyErr error
+		privateKey, keyErr = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		if keyErr != nil {
+			return nil, fmt.Errorf("generating private key: %w", keyErr)
 		}
-		if err != nil {
-			return nil, fmt.Errorf("generating private key: %w", err)
-		}
+
 		// Save the new key
-		// Corrected assignment: PEMEncode returns only one value
 		keyBytes := certcrypto.PEMEncode(privateKey)
-		// Removed the err check here as PEMEncode doesn't return an error directly in this context
-		// if err != nil {
-		// 	return nil, fmt.Errorf("encoding private key: %w", err)
-		// }
-		if err = os.WriteFile(keyFilePath, keyBytes, PrivateKeyPermissions); err != nil {
-			return nil, fmt.Errorf("saving private key to %s: %w", keyFilePath, err)
+		if writeErr := os.WriteFile(keyFilePath, keyBytes, PrivateKeyPermissions); writeErr != nil {
+			return nil, fmt.Errorf("saving private key to %s: %w", keyFilePath, writeErr)
 		}
 		log.Printf("Saved new private key to %s", keyFilePath)
 	} else if err != nil {
 		return nil, fmt.Errorf("checking private key file %s: %w", keyFilePath, err)
 	} else {
-		// Load existing key
+		// Load existing key from the new location
 		log.Printf("Loading existing private key from %s", keyFilePath)
-		keyBytes, err := os.ReadFile(keyFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("reading private key file %s: %w", keyFilePath, err)
+		keyBytes, readErr := os.ReadFile(keyFilePath)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading private key file %s: %w", keyFilePath, readErr)
 		}
-		privateKey, err = certcrypto.ParsePEMPrivateKey(keyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing private key from %s: %w", keyFilePath, err)
+		var parseErr error
+		privateKey, parseErr = certcrypto.ParsePEMPrivateKey(keyBytes)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing private key from %s: %w", keyFilePath, parseErr)
 		}
 	}
 
@@ -104,18 +112,18 @@ func createOrLoadUser(cfg *Config) (*MyUser, error) {
 	}
 
 	// Load registration info if it exists
-	if _, err := os.Stat(accountFilePath); err == nil {
+	if _, statErr := os.Stat(accountFilePath); statErr == nil {
 		log.Printf("Loading existing ACME registration from %s", accountFilePath)
-		accountBytes, err := os.ReadFile(accountFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("reading account file %s: %w", accountFilePath, err)
+		accountBytes, readErr := os.ReadFile(accountFilePath)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading account file %s: %w", accountFilePath, readErr)
 		}
-		err = json.Unmarshal(accountBytes, &user.Registration)
-		if err != nil {
-			return nil, fmt.Errorf("parsing account file %s: %w", accountFilePath, err)
+		jsonErr := json.Unmarshal(accountBytes, &user.Registration)
+		if jsonErr != nil {
+			return nil, fmt.Errorf("parsing account file %s: %w", accountFilePath, jsonErr)
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("checking account file %s: %w", accountFilePath, err)
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("checking account file %s: %w", accountFilePath, statErr)
 	}
 
 	return user, nil
@@ -126,8 +134,25 @@ func saveUser(cfg *Config, user *MyUser) error {
 	if user.Registration == nil {
 		return fmt.Errorf("cannot save user without registration resource")
 	}
-	storageDir := cfg.CertStoragePath // Use renamed field
-	accountFilePath := filepath.Join(storageDir, "account.json")
+
+	// Extract ACME server hostname from URL for server-specific directory
+	acmeURL, urlErr := url.Parse(cfg.AcmeServer)
+	if urlErr != nil {
+		return fmt.Errorf("failed to parse ACME server URL: %w", urlErr)
+	}
+
+	// Create Lego-style account path structure
+	accountsBaseDir := filepath.Join(cfg.CertStoragePath, "accounts")
+	serverDir := filepath.Join(accountsBaseDir, acmeURL.Host)
+	emailDir := filepath.Join(serverDir, cfg.Email)
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(emailDir, DirPermissions); err != nil {
+		return fmt.Errorf("creating account directory %s: %w", emailDir, err)
+	}
+
+	// Set path for account file using Lego's exact naming convention
+	accountFilePath := filepath.Join(serverDir, "account.json")
 
 	regBytes, err := json.MarshalIndent(user.Registration, "", "  ")
 	if err != nil {
@@ -143,12 +168,12 @@ func saveUser(cfg *Config, user *MyUser) error {
 }
 
 // RunLego performs the certificate obtain or renew operation.
-// Accepts config, account store, action, the certificate name, and the domains list.
+// Accepts config, account store, action, the certificate name, the domains list, and optional key type.
 // Exported function
-func RunLego(cfg *Config, store *accountStore, action string, certName string, domainsToProcess []string) error {
+func RunLego(cfg *Config, store *accountStore, action string, certName string, domainsToProcess []string, keyType string) error {
 	log.Println("Initializing Lego client...")
 
-	// Validate domainsToProcess is not empty (should be caught by main, but good practice)
+	// Validate domainsToProcess ische not empty (should be caught by main, but good practice)
 	if len(domainsToProcess) == 0 {
 		return fmt.Errorf("RunLego called with empty domains list")
 	}
@@ -160,9 +185,37 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 
 	// Setup Lego config
 	legoConfig := lego.NewConfig(user)
-	legoConfig.CADirURL = cfg.AcmeServer                             // Use renamed field
-	legoConfig.Certificate.KeyType = certcrypto.KeyType(cfg.KeyType) // Use configured key type
-	legoConfig.Certificate.Timeout = 30 * time.Minute                // Generous timeout for challenges
+	legoConfig.CADirURL = cfg.AcmeServer
+
+	// Set key type, using provided value, or fall back to default
+	certKeyType := DefaultKeyType
+	if keyType != "" && isValidKeyType(keyType) {
+		certKeyType = keyType
+		log.Printf("Using specified key type: %s", certKeyType)
+	} else {
+		log.Printf("Using default key type: %s", certKeyType)
+	}
+
+	// Map our key types to Lego's certcrypto constants
+	var legoKeyType certcrypto.KeyType
+	switch certKeyType {
+	case "rsa2048":
+		legoKeyType = certcrypto.RSA2048
+	case "rsa3072":
+		legoKeyType = certcrypto.RSA3072
+	case "rsa4096":
+		legoKeyType = certcrypto.RSA4096
+	case "ec256":
+		legoKeyType = certcrypto.EC256
+	case "ec384":
+		legoKeyType = certcrypto.EC384
+	default:
+		// Default to RSA2048 if we don't have a mapping (shouldn't happen due to validation)
+		legoKeyType = certcrypto.RSA2048
+	}
+
+	legoConfig.Certificate.KeyType = legoKeyType
+	legoConfig.Certificate.Timeout = 30 * time.Minute // Generous timeout for challenges
 
 	// Create Lego client
 	client, err := lego.NewClient(legoConfig)

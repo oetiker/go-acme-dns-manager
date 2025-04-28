@@ -14,6 +14,7 @@ func TestParseCertArg(t *testing.T) {
 		arg           string
 		wantCertName  string
 		wantDomains   []string
+		wantKeyType   string
 		wantErr       bool
 		wantErrPrefix string
 	}{
@@ -22,6 +23,7 @@ func TestParseCertArg(t *testing.T) {
 			arg:          "mycert@example.com,www.example.com",
 			wantCertName: "mycert",
 			wantDomains:  []string{"example.com", "www.example.com"},
+			wantKeyType:  "",
 			wantErr:      false,
 		},
 		{
@@ -29,6 +31,7 @@ func TestParseCertArg(t *testing.T) {
 			arg:          "mycert@example.com",
 			wantCertName: "mycert",
 			wantDomains:  []string{"example.com"},
+			wantKeyType:  "",
 			wantErr:      false,
 		},
 		{
@@ -36,6 +39,7 @@ func TestParseCertArg(t *testing.T) {
 			arg:           "mycert",
 			wantCertName:  "",
 			wantDomains:   nil,
+			wantKeyType:   "",
 			wantErr:       true,
 			wantErrPrefix: "invalid format:",
 		},
@@ -44,6 +48,7 @@ func TestParseCertArg(t *testing.T) {
 			arg:           "mycert@",
 			wantCertName:  "",
 			wantDomains:   nil,
+			wantKeyType:   "",
 			wantErr:       true,
 			wantErrPrefix: "invalid format:",
 		},
@@ -52,29 +57,40 @@ func TestParseCertArg(t *testing.T) {
 			arg:           "@example.com",
 			wantCertName:  "",
 			wantDomains:   nil,
+			wantKeyType:   "",
 			wantErr:       true,
 			wantErrPrefix: "invalid format:",
 		},
 		{
-			name:          "Invalid cert name with slashes",
+			name:          "Invalid parameter format",
 			arg:           "my/cert@example.com",
-			wantCertName:  "",
+			wantCertName:  "my",
 			wantDomains:   nil,
+			wantKeyType:   "",
 			wantErr:       true,
-			wantErrPrefix: "invalid certificate name",
+			wantErrPrefix: "invalid format:",
 		},
 		{
 			name:         "Whitespace trimming in domains",
 			arg:          "mycert@example.com, www.example.com ",
 			wantCertName: "mycert",
 			wantDomains:  []string{"example.com", "www.example.com"},
+			wantKeyType:  "",
+			wantErr:      false,
+		},
+		{
+			name:         "With key_type parameter",
+			arg:          "mycert@example.com/key_type=ec384",
+			wantCertName: "mycert",
+			wantDomains:  []string{"example.com"},
+			wantKeyType:  "ec384",
 			wantErr:      false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			certName, domains, err := parseCertArg(tc.arg)
+			certName, domains, keyType, err := parseCertArg(tc.arg)
 
 			// Check error expectation
 			if tc.wantErr {
@@ -88,6 +104,11 @@ func TestParseCertArg(t *testing.T) {
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
+			}
+
+			// Check key type if expected
+			if tc.wantKeyType != keyType {
+				t.Errorf("keyType = %v, want %v", keyType, tc.wantKeyType)
 			}
 
 			// Check cert name

@@ -16,4 +16,7 @@ const (
 
 	// DefaultDNSTimeout defines the timeout for DNS operations in seconds
 	DefaultDNSTimeout = 15
+
+	// DefaultKeyType defines the default certificate key type
+	DefaultKeyType = "rsa4096"
 )

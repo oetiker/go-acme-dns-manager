@@ -22,26 +22,26 @@ type AcmeDnsAccount struct {
 	AllowFrom  []string `json:"allowfrom"`
 }
 
-// NamedCertificate defines a certificate with its associated domains.
-type NamedCertificate struct {
+// CertConfig defines a certificate configuration with its associated domains and optional key type.
+type CertConfig struct {
 	Domains []string `yaml:"domains"`
+	KeyType string   `yaml:"key_type,omitempty"` // Optional: Certificate-specific key type
 }
 
 // AutoDomainsConfig holds the configuration for automatic renewal.
 type AutoDomainsConfig struct {
-	GraceDays int                         `yaml:"graceDays"` // Renewal window in days
-	Certs     map[string]NamedCertificate `yaml:"certs"`     // Map: cert-name -> {domains: [...]}
+	GraceDays int                   `yaml:"grace_days"` // Renewal window in days
+	Certs     map[string]CertConfig `yaml:"certs"`      // Map: cert-name -> {domains: [...], key_type: "..."}
 }
 
 // Config holds the application configuration, loaded from config.yaml.
 type Config struct {
 	Email           string             `yaml:"email"`
-	AcmeServer      string             `yaml:"acme_server"` // Renamed from lego_server
-	KeyType         string             `yaml:"key_type"`
+	AcmeServer      string             `yaml:"acme_server"`
 	AcmeDnsServer   string             `yaml:"acme_dns_server"`
 	DnsResolver     string             `yaml:"dns_resolver,omitempty"`
-	CertStoragePath string             `yaml:"cert_storage_path"` // Renamed from lego_storage_path
-	AutoDomains     *AutoDomainsConfig `yaml:"autoDomains,omitempty"`
+	CertStoragePath string             `yaml:"cert_storage_path"`
+	AutoDomains     *AutoDomainsConfig `yaml:"auto_domains,omitempty"`
 
 	// Internal fields
 	configPath string `yaml:"-"`
@@ -76,31 +76,32 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Email == "" || cfg.Email == "your-email@example.com" {
 		return nil, fmt.Errorf("config error: 'email' must be set and not placeholder")
 	}
-	if cfg.AcmeServer == "" { // Check renamed field
+	if cfg.AcmeServer == "" {
 		return nil, fmt.Errorf("config error: 'acme_server' must be set")
-	}
-	if cfg.KeyType == "" {
-		return nil, fmt.Errorf("config error: 'key_type' must be set")
 	}
 	if cfg.AcmeDnsServer == "" {
 		return nil, fmt.Errorf("config error: 'acme_dns_server' must be set")
 	}
-	if cfg.CertStoragePath == "" { // Check renamed field
+	if cfg.CertStoragePath == "" {
 		return nil, fmt.Errorf("config error: 'cert_storage_path' must be set")
 	}
 
-	// Validation for AutoDomains section if present
+	// Validation for auto_domains section if present
 	if cfg.AutoDomains != nil {
 		if cfg.AutoDomains.GraceDays <= 0 {
 			cfg.AutoDomains.GraceDays = DefaultGraceDays
-			log.Printf("Warning: autoDomains.graceDays not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
+			log.Printf("Warning: auto_domains.grace_days not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
 		}
 		if len(cfg.AutoDomains.Certs) == 0 {
-			log.Printf("Warning: autoDomains section found in config, but 'certs' map is empty or missing.")
+			log.Printf("Warning: auto_domains section found in config, but 'certs' map is empty or missing.")
 		}
 		for name, cert := range cfg.AutoDomains.Certs {
 			if len(cert.Domains) == 0 {
-				return nil, fmt.Errorf("config error: autoDomains.certs['%s'] must have at least one domain in its 'domains' list", name)
+				return nil, fmt.Errorf("config error: auto_domains.certs['%s'] must have at least one domain in its 'domains' list", name)
+			}
+			// Validate key_type if specified
+			if cert.KeyType != "" && !isValidKeyType(cert.KeyType) {
+				return nil, fmt.Errorf("config error: auto_domains.certs['%s'] has invalid key_type: '%s'", name, cert.KeyType)
 			}
 		}
 	}
@@ -149,6 +150,7 @@ cert_storage_path: ".lego" # <-- Renamed from lego_storage_path
 #    # The key here (e.g., 'my-main-site') is the name used for certificate files
 #    # stored in '<cert_storage_path>/certificates/my-main-site.crt' etc.
 #    my-main-site:
+#      key_type: "ec256"       # Optional: Override global key_type for this cert
 #      domains:
 #        - example.com         # First domain is the Common Name (CN)
 #        - www.example.com
@@ -284,4 +286,15 @@ func (cfg *Config) GetRenewalThreshold() time.Duration {
 		days = cfg.AutoDomains.GraceDays
 	}
 	return time.Duration(days) * 24 * time.Hour
+}
+
+// isValidKeyType checks if a key type is valid for certificate usage
+func isValidKeyType(keyType string) bool {
+	validTypes := []string{"rsa2048", "rsa3072", "rsa4096", "ec256", "ec384"}
+	for _, valid := range validTypes {
+		if keyType == valid {
+			return true
+		}
+	}
+	return false
 }

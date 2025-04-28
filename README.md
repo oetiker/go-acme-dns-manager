@@ -12,7 +12,7 @@ This tool automates the process of obtaining and renewing Let's Encrypt certific
 *   Uses a YAML configuration file (`config.yaml`) for main settings.
 *   Generates a default `config.yaml` on first run if it doesn't exist.
 *   Supports manual certificate requests via command-line arguments (`cert-name@domain,...`).
-*   Supports automated renewals via config file (`autoDomains` section) and `-auto-renew` flag.
+*   Supports automated renewals via config file (`auto_domains` section) and `-auto` flag.
 *   Automatically determines `init` or `renew` action based on certificate existence.
 *   Self-contained binary with minimal external dependencies.
 
@@ -59,7 +59,7 @@ acme_dns_server: "https://acme-dns.oetiker.ch" # <-- EDIT THIS if different
 # Example: "1.1.1.1:53" or "8.8.8.8"
 dns_resolver: ""
 
-# List of domains to include in the certificate (REMOVED - Use command-line args or autoDomains section)
+# List of domains to include in the certificate (REMOVED - Use command-line args or auto_domains section)
 
 # Storage for acme-dns account credentials is now in a separate JSON file:
 # See '<cert_storage_path>/acme-dns-accounts.json'
@@ -70,12 +70,13 @@ dns_resolver: ""
 cert_storage_path: ".lego" # Renamed from lego_storage_path
 
 # Optional section for configuring automatic mode via the -auto flag.
-#autoDomains:
+#auto_domains:
 #  graceDays: 30 # Renew certs expiring within this many days (default: 30)
 #  certs:
 #    # The key here (e.g., 'my-main-site') is the name used for certificate files
 #    # stored in '<cert_storage_path>/certificates/my-main-site.crt' etc.
 #    my-main-site:
+#      key_type: "ec256"       # Optional: Override global key_type for this cert
 #      domains:
 #        - example.com         # First domain is the Common Name (CN)
 #        - www.example.com
@@ -92,9 +93,11 @@ cert_storage_path: ".lego" # Renamed from lego_storage_path
 *   `acme_dns_server`: The base URL of your running `acme-dns` instance.
 *   `dns_resolver`: (Optional) Specify a DNS server for CNAME checks. If empty, the system's default resolver is used.
 *   `cert_storage_path`: Directory where the Let's Encrypt account key (`account.key`), registration info (`account.json`), obtained certificates (within a `certificates` subdirectory named after the certificate name), and the `acme-dns` account credentials (`acme-dns-accounts.json`) will be stored. Relative paths are based on the `config.yaml` location. (Renamed from `lego_storage_path`)
-*   `autoDomains`: (Optional) Section for configuring automated mode (`-auto` flag).
+*   `auto_domains`: (Optional) Section for configuring automated mode (`-auto` flag).
     *   `graceDays`: Number of days before expiry to trigger a renewal attempt (default: 30).
-    *   `certs`: A map where keys are the desired certificate names (used for filenames) and values contain a list of domains for that certificate. Wildcard domains (e.g., `*.example.com`) are supported.
+    *   `certs`: A map where keys are the desired certificate names (used for filenames) and values contain:
+        *   `key_type`: (Optional) Override the global key_type specifically for this certificate.
+        *   `domains`: A list of domains for the certificate. Wildcard domains (e.g., `*.example.com`) are supported.
 
 ## Usage
 
@@ -119,17 +122,17 @@ The tool operates in two main modes:
 *   The tool automatically determines if it needs to perform an initial request (`init`) or a renewal (`renew`) based on whether certificate files for that `cert-name` already exist in the `cert_storage_path`.
 *   **Important:** If requesting a certificate name that already exists, the tool checks if the primary domain matches the existing certificate. It currently *does not* verify if the full list of Subject Alternative Names (SANs) matches the existing certificate due to limitations in reading SANs from the stored metadata file. Ensure your request matches the intended certificate.
 
-**2. Automatic Mode:** Use the `-auto` flag to process certificates defined in the `autoDomains` section of the config file.
+**2. Automatic Mode:** Use the `-auto` flag to process certificates defined in the `auto_domains` section of the config file.
 
 ```bash
 # Check all certificates defined in config.yaml and init/renew if necessary
 ./go-acme-dns-manager -config my.yaml -auto
 ```
 
-*   This mode requires the `autoDomains` section to be configured in `config.yaml`.
+*   This mode requires the `auto_domains` section to be configured in `config.yaml`.
 *   No certificate arguments should be provided on the command line.
-*   The tool iterates through each certificate defined under `autoDomains.certs`.
-*   For each certificate, it checks if the `.crt` file exists and if its expiry date is within the configured `graceDays`.
+*   The tool iterates through each certificate defined under `auto_domains.certs`.
+*   For each certificate, it checks if the `.crt` file exists and if its expiry date is within the configured `grace_days`.
 *   If the certificate doesn't exist or is nearing expiry, it performs an `init` or `renew` action. Otherwise, it skips the certificate.
 
 **General Workflow (applies to both modes for each certificate processed):**
