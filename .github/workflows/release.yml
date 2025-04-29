@@ -273,9 +273,18 @@ jobs:
         run: |
           echo "Version from create-tag job: ${{ needs.create-tag.outputs.version }}"
           echo "Looking for artifacts matching:"
-          echo "release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
-          echo "release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
-          find release-artifacts/ -type f -name "${{ env.PROJECT_NAME }}*" | sort
+          echo "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
+          echo "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
+          # Use find with -type f to find all files regardless of directory structure
+          find . -type f -name "${{ env.PROJECT_NAME }}*" | sort
+
+      # Fix: Move release files to a standard location where the softprops/action-gh-release can find them 
+      - name: Prepare release files
+        run: |
+          mkdir -p release_files
+          find . -name "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip" -o -name "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz" | xargs -I{} cp {} release_files/
+          echo "Files prepared for release:"
+          ls -la release_files/
 
       - name: Create Release
         id: create_release
@@ -287,8 +296,6 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease }}
           body_path: release_notes_final.md
           fail_on_unmatched_files: false
-          files: |
-            release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip
-            release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz
+          files: release_files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
