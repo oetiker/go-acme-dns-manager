@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-04-29
+
 ### Added
 - Configurable timeouts for ACME challenges (`challenge_timeout`) and ACME server HTTP requests (`http_timeout`) in `config.yaml`.
 - Added `-quiet` mode flag to reduce output in auto mode (useful for cron jobs)
