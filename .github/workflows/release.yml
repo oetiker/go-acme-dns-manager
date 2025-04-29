@@ -86,7 +86,7 @@ jobs:
           VERSION_NO_V=${{ steps.generate_version.outputs.version_no_v }}
           
           # Update CHANGES.md - Move Unreleased changes to new version section
-          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION_NO_V}] - ${RELEASE_DATE}/" CHANGES.md
+          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n### New\n\n### Changed\n\n### Fixed\n\n\n## [${VERSION_NO_V}] - ${RELEASE_DATE}/" CHANGES.md
           
           echo "Updated CHANGES.md for version ${VERSION_NO_V}"
 
