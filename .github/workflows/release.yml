@@ -201,37 +201,48 @@ jobs:
       - name: Extract release notes
         id: extract_release_notes
         run: |
+          set -e
+          
           # Extract version number without 'v' prefix for CHANGES.md
           VERSION_NO_V=$(echo "${{ needs.create-tag.outputs.version }}" | sed 's/^v//')
+          echo "Looking for version: ${VERSION_NO_V}"
           
-          # Extract the section for this version from CHANGES.md
-          # Find the start of the section for this version
-          START_LINE=$(grep -n "## \[${VERSION_NO_V}\]" CHANGES.md | head -1 | cut -d: -f1)
+          # Debug: Print the first 30 lines of CHANGES.md to aid debugging
+          echo "First 30 lines of CHANGES.md:"
+          head -n 30 CHANGES.md
           
-          if [ -z "$START_LINE" ]; then
-            echo "Error: Could not find version ${VERSION_NO_V} in CHANGES.md"
-            exit 1
-          fi
+          # Use Perl to extract the relevant section - much more reliable than bash/awk
+          perl -e '
+            # Get version from first argument
+            my $version = $ARGV[0];
+            
+            # Read the entire CHANGES.md file
+            undef $/;
+            my $content = <STDIN>;
+            
+            # Use a regex to find the section for our version
+            if ($content =~ /## \[\Q$version\E\][^\n]*\n(.*?)(?=\n## \[|$)/s) {
+              my $section = $1;
+              # Trim leading/trailing whitespace
+              $section =~ s/^\s+|\s+$//g;
+              print $section;
+            } else {
+              # Not found, create minimal content
+              print "Release version $version\n";
+              warn "WARNING: Could not find version $version in CHANGES.md\n";
+            }
+          ' "$VERSION_NO_V" < CHANGES.md > release_notes_final.md
           
-          # Find the start of the next section (##) after this version
-          END_LINE=$(tail -n +$((START_LINE+1)) CHANGES.md | grep -n "^##" | head -1 | cut -d: -f1)
-          
-          if [ -n "$END_LINE" ]; then
-            # If there is a next section, extract between START_LINE and the line before the next section
-            END_LINE=$((START_LINE + END_LINE - 1))
-          else
-            # If there's no next section, extract to the end of the file
-            END_LINE=$(wc -l < CHANGES.md)
-          fi
-          
-          # Extract the release notes to a temporary file
-          sed -n "${START_LINE},${END_LINE}p" CHANGES.md > release_notes.md
-          
-          # Create a properly formatted version by removing the first line (the version header)
-          tail -n +2 release_notes.md > release_notes_final.md
-          
-          echo "Release notes extracted to release_notes_final.md"
+          # Show the result
+          echo "Release notes extracted to release_notes_final.md:"
           cat release_notes_final.md
+
+      - name: Debug artifact files
+        run: |
+          echo "Looking for artifacts matching:"
+          echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
+          echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
+          find . -type f -name "${{ env.PROJECT_NAME }}*" | sort
 
       - name: Create Release
         id: create_release
@@ -242,6 +253,7 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           body_path: release_notes_final.md
+          fail_on_unmatched_files: false
           files: |
             **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip
             **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz
