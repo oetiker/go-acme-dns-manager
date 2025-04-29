@@ -184,7 +184,7 @@ jobs:
             ${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
 
   create-release:
-    needs: build
+    needs: [build, create-tag]  # Add explicit dependency on create-tag to access its outputs
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -239,6 +239,7 @@ jobs:
 
       - name: Debug artifact files
         run: |
+          echo "Version from create-tag job: ${{ needs.create-tag.outputs.version }}"
           echo "Looking for artifacts matching:"
           echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
           echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
