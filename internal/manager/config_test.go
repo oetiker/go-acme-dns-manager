@@ -98,7 +98,7 @@ func TestGenerateDefaultConfig(t *testing.T) {
 	// Check for expected strings in the config
 	expectedStrings := []string{
 		"email:", "acme_server:", "key_type:", "acme_dns_server:",
-		"cert_storage_path:", "autoDomains:", "graceDays:",
+		"cert_storage_path:", "auto_domains:", "grace_days:",
 	}
 
 	for _, s := range expectedStrings {

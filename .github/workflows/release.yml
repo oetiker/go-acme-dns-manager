@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows, darwin]
+        goos: [linux, windows, darwin, illumos]
         goarch: [amd64, arm64]
         include:
           - goos: windows
@@ -71,6 +71,9 @@ jobs:
             extension: ""
             archive: tar.gz
           - goos: darwin
+            extension: ""
+            archive: zip
+          - goos: illumos
             extension: ""
             archive: tar.gz
 
@@ -94,25 +97,29 @@ jobs:
 
       - name: Prepare package
         run: |
-          mkdir -p release-package
-          cp ${{ env.PROJECT_NAME }}${{ matrix.extension }} release-package/
-          # Copy the default config as config-sample.yaml
-          cp config.yaml release-package/config-sample.yaml 
-          cp README.md release-package/
-          cp LICENSE release-package/ || echo "No LICENSE file found"
-          cp CHANGES.md release-package/
+          set -euxo pipefail
+          PKGNAME="${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "release-package/$PKGNAME"
+          cp ${{ env.PROJECT_NAME }}${{ matrix.extension }} "release-package/$PKGNAME/"
+          cp config.yaml "release-package/$PKGNAME/config-sample.yaml"
+          cp README.md "release-package/$PKGNAME/"
+          cp CHANGES.md "release-package/$PKGNAME/"
+          [ -f LICENSE ] && cp LICENSE "release-package/$PKGNAME/"
 
       - name: Create archive
         run: |
+          set -euxo pipefail
+          PKGNAME="${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cd release-package
           if [ "${{ matrix.archive }}" = "zip" ]; then
-            cd release-package
-            zip -r ../${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
-            cd ..
+            zip -r "../$PKGNAME.zip" "$PKGNAME"
           else
-            cd release-package
-            tar -czvf ../${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz .
-            cd ..
+            tar -czvf "../$PKGNAME.tar.gz" "$PKGNAME"
           fi
+          cd ..
+
+      - name: List files for debug
+        run: find . -type f
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

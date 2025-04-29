@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Configurable timeouts for ACME challenges (`challenge_timeout`) and ACME server HTTP requests (`http_timeout`) in `config.yaml`.
+- Added `-quiet` mode flag to reduce output in auto mode (useful for cron jobs)
+- Added a summary report of required CNAME changes at the end of execution
+- Added proper handling of wildcard domains (`*.domain.com`) for CNAME records
+- Added structured logging framework using Go's standard library `slog`
+- Added `-debug` flag to enable detailed debug logging
+
+### Changed
+- Fixed wildcard domain handling to use the correct base domain for CNAME records
+- Improved domain verification to force renewal when certificate doesn't contain all requested domains
+- Enhanced usability by consolidating CNAME setup instructions at the end of execution
+- Refactored logging system to use a consistent interface with support for different log levels
+
 ## [0.3.0] - 2025-04-28
 
 ### Changed

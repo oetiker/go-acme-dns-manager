@@ -26,8 +26,9 @@ type certRequest struct {
 var (
 	configPath          = flag.String("config", "config.yaml", "Path to the configuration file")
 	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'auto_domains' config section (handles init and renew)")
+	quietMode           = flag.Bool("quiet", false, "Reduce output in auto mode (useful for cron jobs)")
 	printConfigTemplate = flag.Bool("print-config-template", false, "Print a default configuration template to stdout and exit")
-	migrateAccounts     = flag.Bool("migrate-accounts", false, "Migrate accounts from old format (account.json/account.key) to new server-specific directory structure")
+	debugMode           = flag.Bool("debug", false, "Enable debug logging")
 )
 
 // Helper function to parse cert-name@domain1,domain2/key_type=ec384 syntax
@@ -96,12 +97,27 @@ func main() {
 	}
 	flag.Parse()
 
+	// Setup logger with the appropriate level
+	logLevel := manager.LogLevelInfo
+	if *quietMode && *autoMode {
+		logLevel = manager.LogLevelQuiet
+	} else if *debugMode {
+		logLevel = manager.LogLevelDebug
+	}
+	logger := manager.NewLogger(os.Stdout, logLevel)
+	manager.SetupDefaultLogger(logLevel) // Set the default logger for the manager package
+
+	// Define logMessage and logImportant as wrappers for the new logger
+	logMessage := logger.Infof
+	logImportant := logger.Importantf
+
 	// Handle print config template flag first
 	if *printConfigTemplate {
 		fmt.Println("# Default configuration template:")
 		err := manager.GenerateDefaultConfig(os.Stdout) // Write to stdout
 		if err != nil {
-			log.Fatalf("Error printing config template: %v", err)
+			logger.Errorf("Error printing config template: %v", err)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
@@ -144,7 +160,7 @@ func main() {
 	if isManualMode && isAutoMode {
 		log.Fatal("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
 	}
-	if !isManualMode && !isAutoMode && !*migrateAccounts {
+	if !isManualMode && !isAutoMode {
 		fmt.Fprintf(os.Stderr, "Error: No operation specified. Provide certificate arguments or use -auto flag.\n\n")
 		flag.Usage()
 		os.Exit(1)
@@ -157,7 +173,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error initializing account store from %s: %v", accountsFilePath, err)
 	}
-	fmt.Println("ACME DNS accounts loaded successfully.")
+
+	// Log that accounts were loaded successfully
+	logger.Info("ACME DNS accounts loaded successfully.")
 
 	// --- Build List of Certificate Requests ---
 	requests := []certRequest{}
@@ -319,6 +337,13 @@ func main() {
 								log.Printf("  Warning: Domain list differences detected for certificate '%s':", req.Name)
 								if len(missingDomains) > 0 {
 									log.Printf("    - New domains that will be added: %v", missingDomains)
+									// Force renewal when domains are missing from the certificate
+									log.Printf("    - Will force renewal to include all requested domains.")
+									// Make sure we don't skip this certificate even if not expiring soon
+									if action == "skip" && isAutoMode {
+										action = "renew"
+										log.Printf("    - Changed action from 'skip' to 'renew' due to missing domains.")
+									}
 								}
 								if len(extraDomains) > 0 {
 									log.Printf("    - Domains in existing cert that will be removed: %v", extraDomains)
@@ -383,7 +408,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	log.Printf("Pre-checks complete. Processing %d certificate task(s)...", len(tasks))
+	logMessage("Pre-checks complete. Processing %d certificate task(s)...", len(tasks))
+	// Define a struct to track required CNAME changes
+	type requiredCNAME struct {
+		Domain      string
+		CNAMERecord string
+		Target      string
+	}
+
+	// List to collect required CNAME records
+	var requiredCNAMEs []requiredCNAME
 
 	// --- Process Tasks (ACME DNS Verification & Lego Execution) ---
 	anyFailure := false
@@ -392,78 +426,121 @@ func main() {
 		domains := task.Request.Domains
 		action := task.Action
 
-		log.Printf("--- Processing Task: Action=%s, CertName=%s, Domains=%v ---", action, certName, domains)
+		logMessage("--- Processing Task: Action=%s, CertName=%s, Domains=%v ---", action, certName, domains)
 
 		// 1. Verify/Register ACME DNS for all domains in this group
 		needsManualUpdate := false
-		log.Printf("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
+		logMessage("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
 		for _, domain := range domains {
 			account, exists := store.GetAccount(domain)
 
 			if !exists {
-				log.Printf("  Registering ACME DNS for %s...", domain)
+				logMessage("  Registering ACME DNS for %s...", domain)
 				newAccount, err := manager.RegisterNewAccount(cfg, store, domain)
 				if err != nil {
-					log.Printf("  ERROR registering new acme-dns account for %s: %v", domain, err)
+					logImportant("  ERROR registering new acme-dns account for %s: %v", domain, err)
 					anyFailure = true
 					break // Stop processing this cert group if registration fails
 				}
-				manager.PrintRequiredCname(domain, newAccount.FullDomain)
+
+				// Instead of printing immediately, collect for final report
+				baseDomain := manager.GetBaseDomain(domain)
+				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
+				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
+					Domain:      domain,
+					CNAMERecord: cnameRecord,
+					Target:      newAccount.FullDomain,
+				})
+
 				needsManualUpdate = true
 				continue
 			}
 
 			// Account exists, verify CNAME
-			log.Printf("  Verifying CNAME for %s...", domain)
+			logMessage("  Verifying CNAME for %s...", domain)
 			cnameValid, err := manager.VerifyCnameRecord(cfg, domain, account.FullDomain)
 			if err != nil {
-				log.Printf("  Warning: Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
-				manager.PrintRequiredCname(domain, account.FullDomain)
+				logMessage("  Warning: Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
+
+				// Instead of printing immediately, collect for final report
+				baseDomain := manager.GetBaseDomain(domain)
+				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
+				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
+					Domain:      domain,
+					CNAMERecord: cnameRecord,
+					Target:      account.FullDomain,
+				})
+
 				needsManualUpdate = true
 			} else if !cnameValid {
-				log.Printf("  CNAME record for %s is missing or invalid.", domain)
-				manager.PrintRequiredCname(domain, account.FullDomain)
+				logMessage("  CNAME record for %s is missing or invalid.", domain)
+
+				// Instead of printing immediately, collect for final report
+				baseDomain := manager.GetBaseDomain(domain)
+				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
+				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
+					Domain:      domain,
+					CNAMERecord: cnameRecord,
+					Target:      account.FullDomain,
+				})
+
 				needsManualUpdate = true
 			} else {
-				log.Printf("  CNAME record for %s is valid.", domain)
+				logMessage("  CNAME record for %s is valid.", domain)
 			}
 		} // End domain loop for ACME DNS
 
 		if anyFailure {
-			log.Printf("Skipping Lego operation for '%s' due to previous errors.", certName)
+			logMessage("Skipping Lego operation for '%s' due to previous errors.", certName)
 			continue // Move to the next task
 		}
 
 		if needsManualUpdate {
-			log.Printf("Manual DNS CNAME updates required for certificate '%s'. Please configure the records shown above and run again.", certName)
+			logMessage("Manual DNS CNAME updates required for certificate '%s'.", certName)
 			anyFailure = true // Treat as failure for overall exit code
 			continue          // Move to the next task
 		}
 
-		log.Printf("All domains for '%s' have valid ACME DNS configurations.", certName)
+		logMessage("All domains for '%s' have valid ACME DNS configurations.", certName)
 
 		// 2. Run Lego action
-		log.Printf("Proceeding with Lego action '%s' for certificate '%s'...", action, certName)
+		logMessage("Proceeding with Lego action '%s' for certificate '%s'...", action, certName)
 		keyType := task.Request.KeyType
 		if keyType != "" {
-			log.Printf("Using specified key type for certificate: %s", keyType)
+			logMessage("Using specified key type for certificate: %s", keyType)
 		}
 		err = manager.RunLego(cfg, store, action, certName, domains, keyType) // Pass certName and keyType
 		if err != nil {
-			log.Printf("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
+			logImportant("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
 			anyFailure = true
 			// Continue to next task even if one fails? Or stop? Let's continue for now.
 		} else {
-			log.Printf("Lego operation successful for certificate '%s'.", certName)
+			logImportant("Lego operation successful for certificate '%s'.", certName)
 		}
 
 	} // End task processing loop
 
 	// --- Final Status ---
+	if len(requiredCNAMEs) > 0 {
+		logImportant("\n===== REQUIRED DNS CHANGES =====")
+		logImportant("The following CNAME records need to be created or updated in your DNS:")
+		for _, cname := range requiredCNAMEs {
+			if strings.HasPrefix(cname.Domain, "*.") {
+				logImportant("Domain: %s (wildcard)", cname.Domain)
+			} else {
+				logImportant("Domain: %s", cname.Domain)
+			}
+			logImportant("  Create CNAME: %s. IN CNAME %s.", cname.CNAMERecord, cname.Target)
+			logImportant("")
+		}
+		logImportant("Please make these DNS changes and run the command again.")
+		anyFailure = true
+	}
+
 	if anyFailure {
-		log.Println("\nOne or more operations failed or require manual intervention.")
+		logImportant("\nOne or more operations failed or require manual intervention.")
 		os.Exit(1)
 	}
 
-	log.Println("\nOperation completed successfully.")
+	logImportant("\nOperation completed successfully.")
 }

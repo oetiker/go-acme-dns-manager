@@ -7,11 +7,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"log"
+	"net/http"
 	"net/url"
 	"os" // Added for Setenv
 	"path/filepath"
-	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -75,7 +74,7 @@ func createOrLoadUser(cfg *Config) (*MyUser, error) {
 
 		// Neither exists, create a new key
 		accountKeyType := "ec384" // Always use EC384 for account keys
-		log.Printf("Generating new private key (%s) for ACME account", accountKeyType)
+		DefaultLogger.Infof("Generating new private key (%s) for ACME account", accountKeyType)
 
 		// Generate new key for account (always ec384 for best security/performance)
 		var keyErr error
@@ -89,12 +88,12 @@ func createOrLoadUser(cfg *Config) (*MyUser, error) {
 		if writeErr := os.WriteFile(keyFilePath, keyBytes, PrivateKeyPermissions); writeErr != nil {
 			return nil, fmt.Errorf("saving private key to %s: %w", keyFilePath, writeErr)
 		}
-		log.Printf("Saved new private key to %s", keyFilePath)
+		DefaultLogger.Infof("Saved new private key to %s", keyFilePath)
 	} else if err != nil {
 		return nil, fmt.Errorf("checking private key file %s: %w", keyFilePath, err)
 	} else {
 		// Load existing key from the new location
-		log.Printf("Loading existing private key from %s", keyFilePath)
+		DefaultLogger.Infof("Loading existing private key from %s", keyFilePath)
 		keyBytes, readErr := os.ReadFile(keyFilePath)
 		if readErr != nil {
 			return nil, fmt.Errorf("reading private key file %s: %w", keyFilePath, readErr)
@@ -113,7 +112,7 @@ func createOrLoadUser(cfg *Config) (*MyUser, error) {
 
 	// Load registration info if it exists
 	if _, statErr := os.Stat(accountFilePath); statErr == nil {
-		log.Printf("Loading existing ACME registration from %s", accountFilePath)
+		DefaultLogger.Infof("Loading existing ACME registration from %s", accountFilePath)
 		accountBytes, readErr := os.ReadFile(accountFilePath)
 		if readErr != nil {
 			return nil, fmt.Errorf("reading account file %s: %w", accountFilePath, readErr)
@@ -163,7 +162,7 @@ func saveUser(cfg *Config, user *MyUser) error {
 	if err != nil {
 		return fmt.Errorf("writing account file %s: %w", accountFilePath, err)
 	}
-	log.Printf("Saved ACME registration to %s", accountFilePath)
+	DefaultLogger.Infof("Saved ACME registration to %s", accountFilePath)
 	return nil
 }
 
@@ -171,7 +170,7 @@ func saveUser(cfg *Config, user *MyUser) error {
 // Accepts config, account store, action, the certificate name, the domains list, and optional key type.
 // Exported function
 func RunLego(cfg *Config, store *accountStore, action string, certName string, domainsToProcess []string, keyType string) error {
-	log.Println("Initializing Lego client...")
+	DefaultLogger.Info("Initializing Lego client...")
 
 	// Validate domainsToProcess ische not empty (should be caught by main, but good practice)
 	if len(domainsToProcess) == 0 {
@@ -191,9 +190,9 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	certKeyType := DefaultKeyType
 	if keyType != "" && isValidKeyType(keyType) {
 		certKeyType = keyType
-		log.Printf("Using specified key type: %s", certKeyType)
+		DefaultLogger.Infof("Using specified key type: %s", certKeyType)
 	} else {
-		log.Printf("Using default key type: %s", certKeyType)
+		DefaultLogger.Infof("Using default key type: %s", certKeyType)
 	}
 
 	// Map our key types to Lego's certcrypto constants
@@ -215,7 +214,12 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	}
 
 	legoConfig.Certificate.KeyType = legoKeyType
-	legoConfig.Certificate.Timeout = 30 * time.Minute // Generous timeout for challenges
+	// Use timeouts from config
+	legoConfig.Certificate.Timeout = cfg.ChallengeTimeout
+	if legoConfig.HTTPClient == nil {
+		legoConfig.HTTPClient = &http.Client{}
+	}
+	legoConfig.HTTPClient.Timeout = cfg.HTTPTimeout
 
 	// Create Lego client
 	client, err := lego.NewClient(legoConfig)
@@ -226,12 +230,12 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	// Setup acme-dns provider
 	// The provider reads ACME_DNS_API_BASE and ACME_DNS_STORAGE_PATH from env vars.
 	// We set them explicitly here from our config to avoid implicit dependencies.
-	log.Printf("Setting ACME_DNS_API_BASE=%s", cfg.AcmeDnsServer)
+	DefaultLogger.Infof("Setting ACME_DNS_API_BASE=%s", cfg.AcmeDnsServer)
 	if err := os.Setenv("ACME_DNS_API_BASE", cfg.AcmeDnsServer); err != nil {
 		return fmt.Errorf("failed to set ACME_DNS_API_BASE env var: %w", err)
 	}
 	// The acmedns provider uses the storage path to *read* the credentials from the JSON file.
-	log.Printf("Setting ACME_DNS_STORAGE_PATH=%s", store.filePath) // Use store.filePath
+	DefaultLogger.Infof("Setting ACME_DNS_STORAGE_PATH=%s", store.filePath) // Use store.filePath
 	if err := os.Setenv("ACME_DNS_STORAGE_PATH", store.filePath); err != nil {
 		return fmt.Errorf("failed to set ACME_DNS_STORAGE_PATH env var: %w", err)
 	}
@@ -249,24 +253,24 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 
 	// Register the user if needed
 	if user.Registration == nil {
-		log.Println("No existing ACME registration found. Registering...")
+		DefaultLogger.Info("No existing ACME registration found. Registering...")
 		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
 		if err != nil {
 			return fmt.Errorf("ACME registration failed: %w", err)
 		}
 		user.Registration = reg
-		log.Println("ACME registration successful.")
+		DefaultLogger.Info("ACME registration successful.")
 		if err := saveUser(cfg, user); err != nil {
 			// Log error but continue, registration succeeded
-			log.Printf("Warning: failed to save ACME registration details: %v", err)
+			DefaultLogger.Warnf("Warning: failed to save ACME registration details: %v", err)
 		}
 	} else {
-		log.Println("Using existing ACME registration.")
+		DefaultLogger.Info("Using existing ACME registration.")
 	}
 
 	// Perform the requested action
 	if action == "init" {
-		log.Printf("Requesting new certificate for domains: %v", domainsToProcess) // Use domainsToProcess
+		DefaultLogger.Infof("Requesting new certificate for domains: %v", domainsToProcess) // Use domainsToProcess
 		request := certificate.ObtainRequest{
 			Domains: domainsToProcess, // Use domainsToProcess
 			Bundle:  true,             // Get certificate chain
@@ -275,20 +279,20 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 		if err != nil {
 			return fmt.Errorf("failed to obtain certificate: %w", err)
 		}
-		log.Printf("Successfully obtained certificate '%s'!", certName)
+		DefaultLogger.Infof("Successfully obtained certificate '%s'!", certName)
 		// Lego automatically saves certs based on its internal storage logic,
 		// which relies on the working directory or can be configured.
 		// We need to ensure it saves to cfg.LegoStoragePath/certificates
 		// Pass certName to saveCertificates
 		if err := saveCertificates(cfg, certName, certificates); err != nil {
-			log.Printf("Warning: failed to save certificate '%s': %v", certName, err)
+			DefaultLogger.Warnf("Warning: failed to save certificate '%s': %v", certName, err)
 		}
 	} else if action == "renew" {
 		// Renewal typically renews the *existing* certificate identified by its primary domain,
 		// which should cover all domains listed in the cert. Lego's Renew function handles this.
 		// We just need the primary domain from the list to load the existing cert resource.
 		primaryDomain := domainsToProcess[0]
-		log.Printf("Attempting to renew certificate associated with primary domain %s (covers: %v)", primaryDomain, domainsToProcess)
+		DefaultLogger.Infof("Attempting to renew certificate associated with primary domain %s (covers: %v)", primaryDomain, domainsToProcess)
 
 		// Check if the certificate resource file exists for the primary domain.
 		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.json", primaryDomain)) // Use renamed field
@@ -298,7 +302,7 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 			if _, err := os.Stat(certPath); os.IsNotExist(err) {
 				return fmt.Errorf("cannot renew: certificate file not found for primary domain %s at %s (and %s). Run 'init' first?", primaryDomain, certPath, metaPath)
 			}
-			log.Printf("Warning: Certificate metadata file %s missing, but certificate %s exists. Attempting renewal but might lack SANs.", metaPath, certPath)
+			DefaultLogger.Warnf("Warning: Certificate metadata file %s missing, but certificate %s exists. Attempting renewal but might lack SANs.", metaPath, certPath)
 			// Proceed without existingCert, Lego might handle it? Or fail.
 			// Let's require the metadata for reliable renewal.
 			return fmt.Errorf("cannot renew: certificate metadata file not found at %s. Run 'init' again?", metaPath)
@@ -331,12 +335,12 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 
 		// Check if renewal actually occurred (Lego might return the old cert if still valid)
 		if newCertificates == nil || string(newCertificates.Certificate) == string(existingCert.Certificate) {
-			log.Println("Certificate renewal not required or did not result in a new certificate.")
+			DefaultLogger.Info("Certificate renewal not required or did not result in a new certificate.")
 		} else {
-			log.Printf("Successfully renewed certificate '%s'!", certName)
+			DefaultLogger.Infof("Successfully renewed certificate '%s'!", certName)
 			// Pass certName to saveCertificates
 			if err := saveCertificates(cfg, certName, newCertificates); err != nil {
-				log.Printf("Warning: failed to save renewed certificate '%s': %v", certName, err)
+				DefaultLogger.Warnf("Warning: failed to save renewed certificate '%s': %v", certName, err)
 			}
 		}
 	} else {
@@ -362,7 +366,7 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 	// Ensure resource.Domain is set correctly, use certName if primary domain isn't obvious
 	// Lego usually sets resource.Domain to the first domain in the request.
 	if resource.Domain == "" {
-		log.Printf("Warning: certificate.Resource.Domain is empty, using certName '%s' for metadata.", certName)
+		DefaultLogger.Warnf("Warning: certificate.Resource.Domain is empty, using certName '%s' for metadata.", certName)
 		resource.Domain = certName // Or maybe the first domain from the request? Let's stick to certName for consistency.
 	}
 
@@ -370,22 +374,22 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 	if err != nil {
 		return fmt.Errorf("writing certificate file %s: %w", certFile, err)
 	}
-	log.Printf("Saved certificate to %s", certFile)
+	DefaultLogger.Infof("Saved certificate to %s", certFile)
 
 	err = os.WriteFile(keyFile, resource.PrivateKey, PrivateKeyPermissions)
 	if err != nil {
 		return fmt.Errorf("writing private key file %s: %w", keyFile, err)
 	}
-	log.Printf("Saved private key to %s", keyFile)
+	DefaultLogger.Infof("Saved private key to %s", keyFile)
 
 	// Save issuer certificate if present
 	if len(resource.IssuerCertificate) > 0 {
 		err = os.WriteFile(issuerFile, resource.IssuerCertificate, CertificatePermissions)
 		if err != nil {
 			// Non-fatal, just log
-			log.Printf("Warning: writing issuer certificate file %s: %v", issuerFile, err)
+			DefaultLogger.Warnf("Warning: writing issuer certificate file %s: %v", issuerFile, err)
 		} else {
-			log.Printf("Saved issuer certificate to %s", issuerFile)
+			DefaultLogger.Infof("Saved issuer certificate to %s", issuerFile)
 		}
 	}
 
@@ -399,7 +403,7 @@ func saveCertificates(cfg *Config, certName string, resource *certificate.Resour
 	if err != nil {
 		return fmt.Errorf("writing certificate metadata file %s: %w", jsonFile, err)
 	}
-	log.Printf("Saved certificate metadata to %s", jsonFile)
+	DefaultLogger.Infof("Saved certificate metadata to %s", jsonFile)
 
 	return nil
 }

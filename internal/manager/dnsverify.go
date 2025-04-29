@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors" // Added for errors.As
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -25,19 +24,29 @@ func (r *DefaultDNSResolver) LookupCNAME(ctx context.Context, host string) (stri
 	return r.Resolver.LookupCNAME(ctx, host)
 }
 
+// GetBaseDomain extracts the base domain from a wildcard or regular domain
+func GetBaseDomain(domain string) string {
+	// Remove wildcard prefix if present
+	if strings.HasPrefix(domain, "*.") {
+		return strings.TrimPrefix(domain, "*.")
+	}
+	return domain
+}
+
 // VerifyCnameRecord checks if the _acme-challenge CNAME record for the domain
 // points to the expected target (the fulldomain from acme-dns).
 // Exported function
 func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool, error) {
-	challengeDomain := fmt.Sprintf("_acme-challenge.%s", domain)
+	baseDomain := GetBaseDomain(domain)
+	challengeDomain := fmt.Sprintf("_acme-challenge.%s", baseDomain)
 	expectedTarget = strings.TrimSuffix(expectedTarget, ".") // Ensure no trailing dot for comparison
 
-	log.Printf("Verifying CNAME record for %s -> %s", challengeDomain, expectedTarget)
+	DefaultLogger.Infof("Verifying CNAME record for %s -> %s", challengeDomain, expectedTarget)
 
 	var resolver DNSResolver
 
 	if cfg.DnsResolver != "" {
-		log.Printf("Using custom DNS resolver: %s", cfg.DnsResolver)
+		DefaultLogger.Infof("Using custom DNS resolver: %s", cfg.DnsResolver)
 		// Ensure the resolver address includes a port
 		resolverAddr := cfg.DnsResolver
 		if !strings.Contains(resolverAddr, ":") {
@@ -56,7 +65,7 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 		}
 		resolver = &DefaultDNSResolver{Resolver: customResolver}
 	} else {
-		log.Printf("Using system default DNS resolver")
+		DefaultLogger.Infof("Using system default DNS resolver")
 		// Use default resolver
 		resolver = &DefaultDNSResolver{Resolver: net.DefaultResolver}
 	}
@@ -76,22 +85,22 @@ func VerifyWithResolver(resolver DNSResolver, challengeDomain string, expectedTa
 		// Check for specific error types, like "no such host" which means the record doesn't exist
 		var dnsErr *net.DNSError
 		if ok := errors.As(err, &dnsErr); ok && dnsErr.IsNotFound {
-			log.Printf("CNAME record for %s not found.", challengeDomain)
+			DefaultLogger.Warnf("CNAME record for %s not found.", challengeDomain)
 			return false, nil // Record not found is a valid check result (false), not an error
 		}
 		// Other errors (timeout, server failure) are actual errors
-		log.Printf("Error looking up CNAME for %s: %v", challengeDomain, err)
+		DefaultLogger.Errorf("Error looking up CNAME for %s: %v", challengeDomain, err)
 		return false, fmt.Errorf("DNS lookup error for %s: %w", challengeDomain, err)
 	}
 
 	cname = strings.TrimSuffix(cname, ".") // Ensure no trailing dot
-	log.Printf("Found CNAME for %s: %s", challengeDomain, cname)
+	DefaultLogger.Infof("Found CNAME for %s: %s", challengeDomain, cname)
 
 	isValid := cname == expectedTarget
 	if isValid {
-		log.Printf("CNAME record for %s is valid.", challengeDomain)
+		DefaultLogger.Infof("CNAME record for %s is valid.", challengeDomain)
 	} else {
-		log.Printf("CNAME record for %s is INVALID (Expected: %s, Found: %s)", challengeDomain, expectedTarget, cname)
+		DefaultLogger.Warnf("CNAME record for %s is INVALID (Expected: %s, Found: %s)", challengeDomain, expectedTarget, cname)
 	}
 
 	return isValid, nil

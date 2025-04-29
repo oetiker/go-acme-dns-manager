@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -20,7 +19,7 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 		return nil, fmt.Errorf("constructing register URL: %w", err)
 	}
 
-	log.Printf("Registering new acme-dns account for %s at %s", domain, registerURL)
+	DefaultLogger.Infof("Registering new acme-dns account for %s at %s", domain, registerURL)
 
 	// acme-dns expects an empty JSON object {}
 	requestBody := []byte("{}")
@@ -63,19 +62,20 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 	if err := store.SaveAccounts(); err != nil {
 		// Log the error but potentially continue? Or should this be fatal?
 		// For now, log and return the error, as saving is critical.
-		log.Printf("Error saving account store after registering %s: %v", domain, err)
+		DefaultLogger.Errorf("Error saving account store after registering %s: %v", domain, err)
 		return nil, fmt.Errorf("saving account store after registration: %w", err)
 	}
 
-	log.Printf("Successfully registered %s. Account details saved to %s.", domain, store.filePath)
+	DefaultLogger.Infof("Successfully registered %s. Account details saved to %s.", domain, store.filePath)
 	return &newAccount, nil
 }
 
 // PrintRequiredCname prints the CNAME record needed for the user to configure.
 // Exported function
 func PrintRequiredCname(domain string, fulldomain string) {
+	baseDomain := GetBaseDomain(domain)
 	fmt.Println(string(make([]byte, 60))) // Cheap way to print a line
 	fmt.Printf("Required DNS CNAME Record:\n")
-	fmt.Printf("  _acme-challenge.%s. IN CNAME %s.\n", domain, fulldomain)
+	fmt.Printf("  _acme-challenge.%s. IN CNAME %s.\n", baseDomain, fulldomain)
 	fmt.Println(string(make([]byte, 60)))
 }

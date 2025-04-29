@@ -93,11 +93,13 @@ cert_storage_path: ".lego" # Renamed from lego_storage_path
 *   `acme_dns_server`: The base URL of your running `acme-dns` instance.
 *   `dns_resolver`: (Optional) Specify a DNS server for CNAME checks. If empty, the system's default resolver is used.
 *   `cert_storage_path`: Directory where the Let's Encrypt account key (`account.key`), registration info (`account.json`), obtained certificates (within a `certificates` subdirectory named after the certificate name), and the `acme-dns` account credentials (`acme-dns-accounts.json`) will be stored. Relative paths are based on the `config.yaml` location. (Renamed from `lego_storage_path`)
-*   `auto_domains`: (Optional) Section for configuring automated mode (`-auto` flag).
-    *   `graceDays`: Number of days before expiry to trigger a renewal attempt (default: 30).
-    *   `certs`: A map where keys are the desired certificate names (used for filenames) and values contain:
-        *   `key_type`: (Optional) Override the global key_type specifically for this certificate.
-        *   `domains`: A list of domains for the certificate. Wildcard domains (e.g., `*.example.com`) are supported.
+*   `challenge_timeout`: (Optional) Timeout duration for ACME challenges (e.g., DNS propagation checks). Uses Go duration format (e.g., "10m", "5m30s"). Defaults to "10m".
+*   `http_timeout`: (Optional) Timeout duration for HTTP requests made to the ACME server. Uses Go duration format (e.g., "30s", "1m"). Defaults to "30s".
+*   `auto_domains`: (Optional) Section for configuring automatic renewals.
+    *   `grace_days`: Number of days before expiry to trigger renewal (default: 30).
+    *   `certs`: A map where keys are certificate names (used for filenames) and values define the domains and optional `key_type` for each certificate.
+        *   `domains`: A list of domain names to include in the certificate. The first domain is the Common Name (CN).
+        *   `key_type`: (Optional) Override the default key_type of rsa4096 for this specific certificate.
 
 ## Usage
 

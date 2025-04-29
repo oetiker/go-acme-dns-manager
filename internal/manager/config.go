@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io" // Added for io.Writer
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,14 +33,18 @@ type AutoDomainsConfig struct {
 	Certs     map[string]CertConfig `yaml:"certs"`      // Map: cert-name -> {domains: [...], key_type: "..."}
 }
 
-// Config holds the application configuration, loaded from config.yaml.
+// Config holds the application configuration, loaded from YAML
 type Config struct {
-	Email           string             `yaml:"email"`
-	AcmeServer      string             `yaml:"acme_server"`
-	AcmeDnsServer   string             `yaml:"acme_dns_server"`
-	DnsResolver     string             `yaml:"dns_resolver,omitempty"`
-	CertStoragePath string             `yaml:"cert_storage_path"`
-	AutoDomains     *AutoDomainsConfig `yaml:"auto_domains,omitempty"`
+	Email            string        `yaml:"email"`
+	AcmeServer       string        `yaml:"acme_server"`
+	AcmeDnsServer    string        `yaml:"acme_dns_server"`
+	DnsResolver      string        `yaml:"dns_resolver,omitempty"`
+	CertStoragePath  string        `yaml:"cert_storage_path"`
+	ChallengeTimeout time.Duration `yaml:"challenge_timeout,omitempty"` // Timeout for ACME challenges
+	HTTPTimeout      time.Duration `yaml:"http_timeout,omitempty"`      // Timeout for HTTP requests to ACME server
+
+	// AutoDomains section for automatic renewals
+	AutoDomains *AutoDomainsConfig `yaml:"auto_domains,omitempty"`
 
 	// Internal fields
 	configPath string `yaml:"-"`
@@ -56,9 +59,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Set default values before unmarshalling
 	cfg := &Config{
-		configPath:      path,
-		CertStoragePath: ".lego", // Default value if not in yaml (keeping '.lego' for now for compatibility?)
-		// Consider changing default to ".certs" or similar? For now, keep .lego
+		configPath:       path,
+		CertStoragePath:  ".lego",                 // Default value if not in yaml
+		ChallengeTimeout: DefaultChallengeTimeout, // Default challenge timeout
+		HTTPTimeout:      DefaultHTTPTimeout,      // Default HTTP timeout
 	}
 
 	err = yaml.Unmarshal(data, cfg)
@@ -90,10 +94,10 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.AutoDomains != nil {
 		if cfg.AutoDomains.GraceDays <= 0 {
 			cfg.AutoDomains.GraceDays = DefaultGraceDays
-			log.Printf("Warning: auto_domains.grace_days not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
+			DefaultLogger.Warnf("Warning: auto_domains.grace_days not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
 		}
 		if len(cfg.AutoDomains.Certs) == 0 {
-			log.Printf("Warning: auto_domains section found in config, but 'certs' map is empty or missing.")
+			DefaultLogger.Warnf("Warning: auto_domains section found in config, but 'certs' map is empty or missing.")
 		}
 		for name, cert := range cfg.AutoDomains.Certs {
 			if len(cert.Domains) == 0 {
@@ -138,14 +142,22 @@ dns_resolver: ""
 # Default is '.lego' inside the config file directory.
 cert_storage_path: ".lego" # <-- Renamed from lego_storage_path
 
+# Timeout for ACME challenges (e.g., DNS propagation checks). Default: 10m
+# Format: Go duration string (e.g., "5m", "10m30s", "1h")
+challenge_timeout: "10m"
+
+# Timeout for HTTP requests made to the ACME server. Default: 30s
+# Format: Go duration string (e.g., "30s", "1m")
+http_timeout: "30s"
+
 # Storage for acme-dns account credentials is now in a separate JSON file:
 # See '<cert_storage_path>/acme-dns-accounts.json'
 
 # Optional section for configuring automatic renewals via the -auto flag.
 # If this section is present and -auto is used, the tool will check
 # certificates defined here and renew them if they expire within 'graceDays'.
-#autoDomains:
-#  graceDays: 30 # Renew certs expiring within this many days (default: 30)
+#auto_domains:
+#  grace_days: 30 # Renew certs expiring within this many days (default: 30)
 #  certs:
 #    # The key here (e.g., 'my-main-site') is the name used for certificate files
 #    # stored in '<cert_storage_path>/certificates/my-main-site.crt' etc.

@@ -1,5 +1,7 @@
 package manager
 
+import "time"
+
 // Constants for file permissions
 const (
 	// DirPermissions defines permissions for directories (0750)
@@ -19,4 +21,9 @@ const (
 
 	// DefaultKeyType defines the default certificate key type
 	DefaultKeyType = "rsa4096"
+
+	// DefaultChallengeTimeout is the default timeout for ACME challenges
+	DefaultChallengeTimeout = 10 * time.Minute
+	// DefaultHTTPTimeout is the default timeout for HTTP requests to the ACME server
+	DefaultHTTPTimeout = 30 * time.Second
 )

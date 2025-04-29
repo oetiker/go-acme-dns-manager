@@ -8,3 +8,4 @@ data/certificates/carbo-link.com.crt
 data/certificates/carbo-link.com.issuer.crt
 data/certificates/carbo-link.com.json
 data/certificates/carbo-link.com.key
+build/go-acme-dns-manager
