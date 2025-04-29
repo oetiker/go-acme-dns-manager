@@ -2,10 +2,15 @@ name: Build and Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag (e.g., v1.0.0)'
+      release_type:
+        description: 'Release type'
         required: true
-        default: 'v1.0.0'
+        default: 'bugfix'
+        type: choice
+        options:
+          - bugfix   # Increment patch (x.y.Z)
+          - feature  # Increment minor (x.Y.0)
+          - major    # Increment major (X.0.0)
       prerelease:
         description: 'Is this a prerelease?'
         required: true
@@ -21,17 +26,64 @@ permissions:
 jobs:
   create-tag:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.generate_version.outputs.version }}
     steps:
-      - name: Checkout code
+      - name: Checkout code with history
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Generate new version
+        id: generate_version
+        run: |
+          set -euo pipefail
+          # Get the latest tag from git
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Parse the latest tag to get major, minor, and patch
+          MAJOR=$(echo $LATEST_TAG | sed -E 's/v([0-9]+)\.([0-9]+)\.([0-9]+).*/\1/')
+          MINOR=$(echo $LATEST_TAG | sed -E 's/v([0-9]+)\.([0-9]+)\.([0-9]+).*/\2/')
+          PATCH=$(echo $LATEST_TAG | sed -E 's/v([0-9]+)\.([0-9]+)\.([0-9]+).*/\3/')
+          
+          echo "Current version: $MAJOR.$MINOR.$PATCH"
+          
+          # Increment based on release type
+          case "${{ github.event.inputs.release_type }}" in
+            major)
+              MAJOR=$((MAJOR+1))
+              MINOR=0
+              PATCH=0
+              ;;
+            feature)
+              MINOR=$((MINOR+1))
+              PATCH=0
+              ;;
+            bugfix)
+              PATCH=$((PATCH+1))
+              ;;
+          esac
+          
+          # Generate new version
+          NEW_VERSION="v$MAJOR.$MINOR.$PATCH"
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
+          # Also create a version without the v prefix for CHANGES.md
+          echo "version_no_v=$MAJOR.$MINOR.$PATCH" >> $GITHUB_OUTPUT
+          
+          # Get current date in YYYY-MM-DD format
+          RELEASE_DATE=$(date +%Y-%m-%d)
+          echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
+          
       - name: Update CHANGES.md
         run: |
           set -euo pipefail
           # Get current date in YYYY-MM-DD format
-          RELEASE_DATE=$(date +%Y-%m-%d)
-          
-          # Extract version number without 'v' prefix for CHANGES.md
-          VERSION_NO_V=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
+          RELEASE_DATE=${{ steps.generate_version.outputs.release_date }}
+          VERSION_NO_V=${{ steps.generate_version.outputs.version_no_v }}
           
           # Update CHANGES.md - Move Unreleased changes to new version section
           sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION_NO_V}] - ${RELEASE_DATE}/" CHANGES.md
@@ -47,14 +99,16 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
+          VERSION="${{ steps.generate_version.outputs.version }}"
+          
           # Commit CHANGES.md update
           git add CHANGES.md
-          git commit -m "Update CHANGES.md for release ${{ github.event.inputs.version }}"
+          git commit -m "Update CHANGES.md for release ${VERSION}"
           
           # Create and push tag
-          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
+          git tag -a ${VERSION} -m "Release ${VERSION}"
           git push origin main
-          git push origin ${{ github.event.inputs.version }}
+          git push origin ${VERSION}
 
   build:
     needs: create-tag
@@ -82,7 +136,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version }}
+          ref: ${{ needs.create-tag.outputs.version }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -99,7 +153,7 @@ jobs:
       - name: Prepare package
         run: |
           set -euxo pipefail
-          PKGNAME="${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          PKGNAME="${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           mkdir -p "release-package/$PKGNAME"
           cp ${{ env.PROJECT_NAME }}${{ matrix.extension }} "release-package/$PKGNAME/"
           cp config.yaml "release-package/$PKGNAME/config-sample.yaml"
@@ -110,7 +164,7 @@ jobs:
       - name: Create archive
         run: |
           set -euxo pipefail
-          PKGNAME="${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          PKGNAME="${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           cd release-package
           if [ "${{ matrix.archive }}" = "zip" ]; then
             zip -r "../$PKGNAME.zip" "$PKGNAME"
@@ -127,7 +181,7 @@ jobs:
         with:
           name: ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            ${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+            ${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
 
   create-release:
     needs: build
@@ -142,13 +196,13 @@ jobs:
       - name: Checkout code for release notes
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version }}
+          ref: ${{ needs.create-tag.outputs.version }}
           
       - name: Extract release notes
         id: extract_release_notes
         run: |
           # Extract version number without 'v' prefix for CHANGES.md
-          VERSION_NO_V=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
+          VERSION_NO_V=$(echo "${{ needs.create-tag.outputs.version }}" | sed 's/^v//')
           
           # Extract the section for this version from CHANGES.md
           # Find the start of the section for this version
@@ -183,13 +237,13 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }}
+          tag_name: ${{ needs.create-tag.outputs.version }}
+          name: Release ${{ needs.create-tag.outputs.version }}
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           body_path: release_notes_final.md
           files: |
-            **/${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-*.zip
-            **/${{ env.PROJECT_NAME }}-${{ github.event.inputs.version }}-*.tar.gz
+            **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip
+            **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
