@@ -176,18 +176,27 @@ jobs:
             ARCHIVE_NAME="$PKGDIR_BASE.$ARCHIVE_TYPE"
             # Make sure the archives directory exists (might be removed when cd'ing)
             mkdir -p "$ARCHIVES_DIR"
+            
+            # Save the current working directory
+            CURRENT_DIR=$(pwd)
+            
+            # Change to temp build directory for archiving
             cd "$TEMP_BUILD_DIR"
             if [ "$ARCHIVE_TYPE" = "zip" ]; then
               # Create parent directory structure if it doesn't exist
-              mkdir -p "$(dirname "../../$ARCHIVES_DIR/$ARCHIVE_NAME")"
-              zip -r "../../$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
+              mkdir -p "$(dirname "$CURRENT_DIR/$ARCHIVES_DIR/$ARCHIVE_NAME")"
+              zip -r "$CURRENT_DIR/$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
             else
               # Create parent directory structure if it doesn't exist
-              mkdir -p "$(dirname "../../$ARCHIVES_DIR/$ARCHIVE_NAME")"
-              tar -czvf "../../$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
+              mkdir -p "$(dirname "$CURRENT_DIR/$ARCHIVES_DIR/$ARCHIVE_NAME")"
+              tar -czvf "$CURRENT_DIR/$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
             fi
-            cd ../.. # Back to workspace root
-            rm -rf "$TEMP_BUILD_DIR" # Clean up temp build dir for this platform
+            
+            # Return to original directory
+            cd "$CURRENT_DIR"
+            
+            # Clean up temp build dir for this platform
+            rm -rf "$TEMP_BUILD_DIR"
           done
 
           echo "All builds and packages complete."
