@@ -113,25 +113,6 @@ jobs:
   build:
     needs: create-tag
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
-        include:
-          - goos: windows
-            extension: .exe
-            archive: zip
-          - goos: linux
-            extension: ""
-            archive: tar.gz
-          - goos: darwin
-            extension: ""
-            archive: zip
-          - goos: illumos
-            goarch: amd64
-            extension: ""
-            archive: tar.gz
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -141,47 +122,80 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.24.1'
 
-      - name: Build
+      - name: Build and Package All Platforms
+        id: build_package
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          go build -o ${{ env.PROJECT_NAME }}${{ matrix.extension }} ./cmd/${{ env.PROJECT_NAME }}
-
-      - name: Prepare package
+          VERSION: ${{ needs.create-tag.outputs.version }}
         run: |
           set -euxo pipefail
-          PKGNAME="${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          mkdir -p "release-package/$PKGNAME"
-          cp ${{ env.PROJECT_NAME }}${{ matrix.extension }} "release-package/$PKGNAME/"
-          cp config.yaml "release-package/$PKGNAME/config-sample.yaml"
-          cp README.md "release-package/$PKGNAME/"
-          cp CHANGES.md "release-package/$PKGNAME/"
-          [ -f LICENSE ] && cp LICENSE "release-package/$PKGNAME/"
+          ARCHIVES_DIR="release-archives"
+          mkdir -p "$ARCHIVES_DIR"
 
-      - name: Create archive
-        run: |
-          set -euxo pipefail
-          PKGNAME="${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          cd release-package
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            zip -r "../$PKGNAME.zip" "$PKGNAME"
-          else
-            tar -czvf "../$PKGNAME.tar.gz" "$PKGNAME"
-          fi
-          cd ..
+          # Define target platforms with their archive formats
+          declare -A targets=(
+            ["linux/amd64"]="tar.gz"
+            ["linux/arm64"]="tar.gz"
+            ["windows/amd64"]="zip"
+            ["windows/arm64"]="zip"
+            ["darwin/amd64"]="zip"
+            ["darwin/arm64"]="zip"
+            ["illumos/amd64"]="tar.gz"
+          )
+
+          for target in "${!targets[@]}"; do
+            GOOS=$(echo $target | cut -d'/' -f1)
+            GOARCH=$(echo $target | cut -d'/' -f2)
+            ARCHIVE_TYPE=${targets[$target]}
+            EXTENSION=""
+            if [ "$GOOS" = "windows" ]; then
+              EXTENSION=".exe"
+            fi
+
+            echo "Building for $GOOS/$GOARCH..."
+            # Create a temporary dir for each build to avoid conflicts
+            TEMP_BUILD_DIR="build_temp_${GOOS}_${GOARCH}"
+            mkdir -p "$TEMP_BUILD_DIR"
+            BINARY_NAME="${{ env.PROJECT_NAME }}${EXTENSION}"
+            
+            # Build directly into the temp dir
+            GOOS=$GOOS GOARCH=$GOARCH go build -o "$TEMP_BUILD_DIR/$BINARY_NAME" ./cmd/${{ env.PROJECT_NAME }}
+
+            # Prepare package contents within the temp dir
+            PKGDIR_BASE="${{ env.PROJECT_NAME }}-${VERSION}-${GOOS}-${GOARCH}"
+            PKGDIR_CONTENTS="$TEMP_BUILD_DIR/$PKGDIR_BASE"
+            mkdir -p "$PKGDIR_CONTENTS"
+            mv "$TEMP_BUILD_DIR/$BINARY_NAME" "$PKGDIR_CONTENTS/" # Move the built binary
+            cp config.yaml "$PKGDIR_CONTENTS/config-sample.yaml"
+            cp README.md "$PKGDIR_CONTENTS/"
+            cp CHANGES.md "$PKGDIR_CONTENTS/"
+            [ -f LICENSE ] && cp LICENSE "$PKGDIR_CONTENTS/"
+
+            # Create archive from the temp dir, placing it in ARCHIVES_DIR
+            ARCHIVE_NAME="$PKGDIR_BASE.$ARCHIVE_TYPE"
+            cd "$TEMP_BUILD_DIR"
+            if [ "$ARCHIVE_TYPE" = "zip" ]; then
+              zip -r "../../$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
+            else
+              tar -czvf "../../$ARCHIVES_DIR/$ARCHIVE_NAME" "$PKGDIR_BASE"
+            fi
+            cd ../.. # Back to workspace root
+            rm -rf "$TEMP_BUILD_DIR" # Clean up temp build dir for this platform
+          done
+
+          echo "All builds and packages complete."
+          echo "Generated archives in $ARCHIVES_DIR:"
+          ls -l "$ARCHIVES_DIR"
 
       - name: List files for debug
-        run: find . -type f
+        run: find release-archives -type f
 
-      - name: Upload artifact
+      - name: Upload all release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: |
-            ${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+          name: release-artifacts # Upload all archives under this single artifact name
+          path: release-archives/ # Path to the directory containing all archives
 
   create-release:
     needs: [build, create-tag]  # Add explicit dependency on create-tag to access its outputs
@@ -189,6 +203,8 @@ jobs:
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        # This will download the single 'release-artifacts' artifact
+        # It will create a directory named 'release-artifacts' containing all the archives
 
       - name: List artifacts
         run: find . -type f
@@ -197,6 +213,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.create-tag.outputs.version }}
+          clean: false # Prevent checkout from deleting downloaded artifacts
           
       - name: Extract release notes
         id: extract_release_notes
@@ -241,9 +258,9 @@ jobs:
         run: |
           echo "Version from create-tag job: ${{ needs.create-tag.outputs.version }}"
           echo "Looking for artifacts matching:"
-          echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
-          echo "**/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
-          find . -type f -name "${{ env.PROJECT_NAME }}*" | sort
+          echo "release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
+          echo "release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
+          find release-artifacts/ -type f -name "${{ env.PROJECT_NAME }}*" | sort
 
       - name: Create Release
         id: create_release
@@ -256,7 +273,7 @@ jobs:
           body_path: release_notes_final.md
           fail_on_unmatched_files: false
           files: |
-            **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip
-            **/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz
+            release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip
+            release-artifacts/${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
