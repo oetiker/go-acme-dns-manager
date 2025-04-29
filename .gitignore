@@ -1,11 +1,4 @@
-/go-acme-dns-manager
-/test.yaml
-/config.yaml
-data/acme-dns-accounts.json
-data/accounts/acme-v02.api.letsencrypt.org/account.json
-data/accounts/acme-v02.api.letsencrypt.org/support@oetiker.ch/keys/support@oetiker.ch.key
-data/certificates/carbo-link.com.crt
-data/certificates/carbo-link.com.issuer.crt
-data/certificates/carbo-link.com.json
-data/certificates/carbo-link.com.key
-build/go-acme-dns-manager
+data
+build
+*~
+*.bak
