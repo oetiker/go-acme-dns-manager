@@ -111,8 +111,8 @@ The tool operates in two main modes:
 # Request a new certificate (or renew if exists) named 'cert1' for example.com and www.example.com
 ./go-acme-dns-manager -config my.yaml cert1@example.com,www.example.com
 
-# Request/Renew multiple certificates in one command
-./go-acme-dns-manager -config my.yaml cert1@a.com,b.com cert2@c.com cert3@d.com,e.com,f.com
+# Request/Renew multiple certificates in one command seting a special key_type for the last one
+./go-acme-dns-manager -config my.yaml cert1@a.com,b.com cert2@c.com cert3@d.com,e.com,f.com/key_type=ec256
 
 # Use a specific config file location
 ./go-acme-dns-manager -config /etc/go-acme-dns-manager/config.yaml cert1@example.com
