@@ -210,26 +210,28 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts # Upload all archives under this single artifact name
-          path: release-archives/ # Path to the directory containing all archives
+          path: release-archives # Path to the directory containing all archives
 
   create-release:
     needs: [build, create-tag]  # Add explicit dependency on create-tag to access its outputs
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code for release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-tag.outputs.version }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts # Name of the artifact to download
+          path: release-archives/ # Path to download the artifact to
         # This will download the single 'release-artifacts' artifact
         # It will create a directory named 'release-artifacts' containing all the archives
 
       - name: List artifacts
         run: find . -type f
 
-      - name: Checkout code for release notes
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.create-tag.outputs.version }}
-          clean: false # Prevent checkout from deleting downloaded artifacts
-          
       - name: Extract release notes
         id: extract_release_notes
         run: |
@@ -238,11 +240,7 @@ jobs:
           # Extract version number without 'v' prefix for CHANGES.md
           VERSION_NO_V=$(echo "${{ needs.create-tag.outputs.version }}" | sed 's/^v//')
           echo "Looking for version: ${VERSION_NO_V}"
-          
-          # Debug: Print the first 30 lines of CHANGES.md to aid debugging
-          echo "First 30 lines of CHANGES.md:"
-          head -n 30 CHANGES.md
-          
+        
           # Use Perl to extract the relevant section - much more reliable than bash/awk
           perl -e '
             # Get version from first argument
@@ -269,23 +267,6 @@ jobs:
           echo "Release notes extracted to release_notes_final.md:"
           cat release_notes_final.md
 
-      - name: Debug artifact files
-        run: |
-          echo "Version from create-tag job: ${{ needs.create-tag.outputs.version }}"
-          echo "Looking for artifacts matching:"
-          echo "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip"
-          echo "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz"
-          # Use find with -type f to find all files regardless of directory structure
-          find . -type f -name "${{ env.PROJECT_NAME }}*" | sort
-
-      # Fix: Move release files to a standard location where the softprops/action-gh-release can find them 
-      - name: Prepare release files
-        run: |
-          mkdir -p release_files
-          find . -name "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.zip" -o -name "${{ env.PROJECT_NAME }}-${{ needs.create-tag.outputs.version }}-*.tar.gz" | xargs -I{} cp {} release_files/
-          echo "Files prepared for release:"
-          ls -la release_files/
-
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -295,7 +276,7 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           body_path: release_notes_final.md
-          fail_on_unmatched_files: false
-          files: release_files/*
+          fail_on_unmatched_files: true
+          files: release-archives/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
