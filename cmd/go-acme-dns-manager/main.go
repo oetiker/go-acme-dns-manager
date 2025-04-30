@@ -23,21 +23,24 @@ type certRequest struct {
 	KeyType string
 }
 
-var (
-	configPath          = flag.String("config", "config.yaml", "Path to the configuration file")
-	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'auto_domains' config section (handles init and renew)")
-	quietMode           = flag.Bool("quiet", false, "Reduce output in auto mode (useful for cron jobs)")
-	printConfigTemplate = flag.Bool("print-config-template", false, "Print a default configuration template to stdout and exit")
-	debugMode           = flag.Bool("debug", false, "Enable debug logging")
-)
-
-// Helper function to parse cert-name@domain1,domain2/key_type=ec384 syntax
-// This function is used for testing purposes only now
+// parseCertArg parses certificate arguments in the format cert-name@domain1,domain2/key_type=ec384
+// This extracts certificate name, domains list, and optional key type parameter
 func parseCertArg(arg string) (string, []string, string, error) {
 	// Check for key_type parameter
 	keyType := ""
 	domainPart := arg
 
+	// Special case: Check for slash in the cert name part, which is an invalid format
+	// Must handle this before processing parameters
+	atIndex := strings.Index(arg, "@")
+	slashIndex := strings.Index(arg, "/")
+	if slashIndex >= 0 && (atIndex == -1 || slashIndex < atIndex) {
+		// There's a slash before the @ sign or there's no @ but there is a slash
+		// This is only allowed if it's a parameter after the domain part
+		return "", nil, "", fmt.Errorf("invalid format: unexpected '/' in certificate name part")
+	}
+
+	// Now process any parameters that appear after the domain part
 	if strings.Contains(arg, "/") {
 		argParts := strings.Split(arg, "/")
 		domainPart = argParts[0]
@@ -47,19 +50,29 @@ func parseCertArg(arg string) (string, []string, string, error) {
 			param := argParts[i]
 			if strings.HasPrefix(param, "key_type=") {
 				keyType = strings.TrimPrefix(param, "key_type=")
-				log.Printf("Found key_type parameter: %s", keyType)
-			} else {
-				log.Printf("Warning: Unknown parameter in certificate spec: %s", param)
-				// This doesn't make the command fail, just a warning
 			}
+			// No logging in this function - caller should log if needed
 		}
 	}
 
-	// Process the domain part
+	// Simple domain format (no @ symbol) - use as both cert name and domain
+	if !strings.Contains(domainPart, "@") {
+		// Basic validation for the domain
+		if strings.ContainsAny(domainPart, "/\\") {
+			return "", nil, "", fmt.Errorf("invalid domain name '%s': must not contain '/' or '\\'", domainPart)
+		}
+		if domainPart == "" {
+			return "", nil, "", fmt.Errorf("empty domain name")
+		}
+		return domainPart, []string{domainPart}, keyType, nil
+	}
+
+	// Process explicit cert-name@domain format
 	parts := strings.SplitN(domainPart, "@", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", nil, "", fmt.Errorf("invalid format: expected 'cert-name@domain1,domain2,...', got '%s'", domainPart)
 	}
+
 	certName := parts[0]
 	domains := []string{}
 	rawDomains := strings.Split(parts[1], ",")
@@ -69,17 +82,26 @@ func parseCertArg(arg string) (string, []string, string, error) {
 			domains = append(domains, trimmed)
 		}
 	}
+
 	if len(domains) == 0 {
 		return "", nil, "", fmt.Errorf("no valid domains found after '@' in argument '%s'", domainPart)
 	}
-	// Basic validation for cert name (adjust regex as needed for stricter rules)
-	// For now, just check it's not empty and doesn't contain problematic chars like '/' or '\'
+
+	// Basic validation for cert name
 	if strings.ContainsAny(certName, "/\\") {
 		return "", nil, "", fmt.Errorf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
 	}
 
 	return certName, domains, keyType, nil
 }
+
+var (
+	configPath          = flag.String("config", "config.yaml", "Path to the configuration file")
+	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'auto_domains' config section (handles init and renew)")
+	quietMode           = flag.Bool("quiet", false, "Reduce output in auto mode (useful for cron jobs)")
+	printConfigTemplate = flag.Bool("print-config-template", false, "Print a default configuration template to stdout and exit")
+	debugMode           = flag.Bool("debug", false, "Enable debug logging")
+)
 
 func main() {
 	flag.Usage = func() {
@@ -125,15 +147,18 @@ func main() {
 	// --- Config Loading ---
 	absConfigPath, err := filepath.Abs(*configPath)
 	if err != nil {
-		log.Fatalf("Error getting absolute path for config file %s: %v", *configPath, err)
+		logger.Errorf("Error getting absolute path for config file %s: %v", *configPath, err)
+		os.Exit(1)
 	}
 	*configPath = absConfigPath
 
 	// Check if config file exists, error if not (don't generate automatically)
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		log.Fatalf("Error: Configuration file not found at %s. Use -print-config-template to get a template.", *configPath)
+		logger.Errorf("Error: Configuration file not found at %s. Use -print-config-template to get a template.", *configPath)
+		os.Exit(1)
 	} else if err != nil {
-		log.Fatalf("Error checking config file %s: %v", *configPath, err)
+		logger.Errorf("Error checking config file %s: %v", *configPath, err)
+		os.Exit(1)
 	}
 
 	// Load configuration (file must exist at this point)
@@ -145,10 +170,12 @@ func main() {
 		if readErr == nil {
 			content := string(contentBytes)
 			if strings.Contains(content, "your-email@example.com") {
-				log.Fatalf("Error: Configuration file %s still contains placeholder email. Please edit it.", *configPath)
+				logger.Errorf("Error: Configuration file %s still contains placeholder email. Please edit it.", *configPath)
+				os.Exit(1)
 			}
 		}
-		log.Fatalf("Error loading config file %s: %v", *configPath, err)
+		logger.Errorf("Error loading config file %s: %v", *configPath, err)
+		os.Exit(1)
 	}
 	fmt.Println("Configuration loaded successfully.")
 
@@ -184,83 +211,50 @@ func main() {
 	if isManualMode {
 		log.Println("Mode: Manual Specification")
 		for _, arg := range positionalArgs {
-			var certName string
-			var domains []string
-			var keyType string
-			// First check if the arg contains key_type parameter
-			var domainPart string
-			if strings.Contains(arg, "/") {
-				parts := strings.Split(arg, "/")
-				domainPart = parts[0]
-
-				// Extract key_type if present
-				for i := 1; i < len(parts); i++ {
-					param := parts[i]
-					if strings.HasPrefix(param, "key_type=") {
-						keyType = strings.TrimPrefix(param, "key_type=")
-						log.Printf("Found key_type parameter: %s", keyType)
-					} else {
-						log.Printf("Warning: Unknown parameter in certificate spec: %s", param)
-					}
-				}
-			} else {
-				domainPart = arg
+			// Use the shared parsing function for all argument formats
+			certName, domains, keyType, err := parseCertArg(arg)
+			if err != nil {
+				logger.Errorf("Error: %v", err)
+				os.Exit(1)
 			}
 
-			if strings.Contains(domainPart, "@") {
-				// Use explicit format: cert-name@domain1,domain2,...
-				parts := strings.SplitN(domainPart, "@", 2)
-				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-					log.Fatalf("Error: Invalid certificate format '%s'. Expected 'name@domain.com'", domainPart)
-				}
-				certName = parts[0]
-				domains = []string{}
-				rawDomains := strings.Split(parts[1], ",")
-				for _, d := range rawDomains {
-					trimmed := strings.TrimSpace(d)
-					if trimmed != "" {
-						domains = append(domains, trimmed)
-					}
-				}
-			} else {
-				// Use shorthand: treat arg as both cert name and single domain
-				certName = domainPart
-				domains = []string{domainPart}
-				log.Printf("Interpreting argument '%s' as shorthand for '%s@%s'", domainPart, certName, certName)
-				// Basic validation for shorthand name
-				if strings.ContainsAny(certName, "/\\") {
-					log.Fatalf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
-				}
-				if certName == "" {
-					log.Fatalf("Error: Empty certificate name/domain provided.")
-				}
+			// For simple domain format (domain used as both cert name and domain),
+			// add an informational message
+			if arg == certName && len(domains) == 1 && domains[0] == arg && !strings.Contains(arg, "@") {
+				logMessage("Interpreting argument '%s' as shorthand for '%s@%s'", arg, certName, certName)
+			}
+
+			// Log parameter information if found
+			if keyType != "" {
+				logMessage("Found key_type parameter: %s", keyType)
 			}
 
 			if _, exists := requestedNames[certName]; exists {
-				log.Fatalf("Error: Duplicate certificate name specified or implied in arguments: '%s'", certName)
+				logger.Errorf("Error: Duplicate certificate name specified or implied in arguments: '%s'", certName)
+				os.Exit(1)
 			}
 			requests = append(requests, certRequest{Name: certName, Domains: domains, KeyType: keyType})
 			requestedNames[certName] = struct{}{}
 		}
 	} else { // Auto Mode
-		log.Println("Mode: Automatic") // Update log message
+		logMessage("Mode: Automatic") // Update log message
 		if cfg.AutoDomains == nil || len(cfg.AutoDomains.Certs) == 0 {
-			log.Println("No certificates defined in 'auto_domains.certs' section of the config file. Nothing to do.")
+			logMessage("No certificates defined in 'auto_domains.certs' section of the config file. Nothing to do.")
 			os.Exit(0)
 		}
-		log.Printf("Processing %d certificate definition(s) from config file...", len(cfg.AutoDomains.Certs))
+		logMessage("Processing %d certificate definition(s) from config file...", len(cfg.AutoDomains.Certs))
 		for name, certDef := range cfg.AutoDomains.Certs {
 			// Basic validation already done in LoadConfig
 			requests = append(requests, certRequest{Name: name, Domains: certDef.Domains, KeyType: certDef.KeyType})
 			if certDef.KeyType != "" {
-				log.Printf("Certificate %s will use key type: %s", name, certDef.KeyType)
+				logMessage("Certificate %s will use key type: %s", name, certDef.KeyType)
 			}
 			// No need to check for duplicate names here as map keys are unique
 		}
 	}
 
 	// --- Pre-Check for Conflicts and Determine Actions ---
-	log.Println("Performing pre-checks for requested certificates...")
+	logMessage("Performing pre-checks for requested certificates...")
 	type requestTask struct {
 		Request certRequest
 		Action  string // "init", "renew", "skip"
@@ -522,18 +516,19 @@ func main() {
 
 	// --- Final Status ---
 	if len(requiredCNAMEs) > 0 {
-		logImportant("\n===== REQUIRED DNS CHANGES =====")
-		logImportant("The following CNAME records need to be created or updated in your DNS:")
+		// Print DNS changes directly to stdout as these are important user-facing information
+		fmt.Println("\n===== REQUIRED DNS CHANGES =====")
+		fmt.Println("The following CNAME records need to be created or updated in your DNS:")
 		for _, cname := range requiredCNAMEs {
 			if strings.HasPrefix(cname.Domain, "*.") {
-				logImportant("Domain: %s (wildcard)", cname.Domain)
+				fmt.Printf("Domain: %s (wildcard)\n", cname.Domain)
 			} else {
-				logImportant("Domain: %s", cname.Domain)
+				fmt.Printf("Domain: %s\n", cname.Domain)
 			}
-			logImportant("  Create CNAME: %s. IN CNAME %s.", cname.CNAMERecord, cname.Target)
-			logImportant("")
+			fmt.Printf("  Create CNAME: %s. IN CNAME %s.\n", cname.CNAMERecord, cname.Target)
+			fmt.Println("")
 		}
-		logImportant("Please make these DNS changes and run the command again.")
+		fmt.Println("Please make these DNS changes and run the command again.")
 		anyFailure = true
 	}
 

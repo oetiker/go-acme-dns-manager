@@ -8,6 +8,8 @@ import (
 	"github.com/oetiker/go-acme-dns-manager/internal/manager"
 )
 
+// No need to redefine parseCertArg - using the one from main.go
+
 func TestParseCertArg(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -35,13 +37,12 @@ func TestParseCertArg(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:          "Missing @ symbol",
-			arg:           "mycert",
-			wantCertName:  "",
-			wantDomains:   nil,
-			wantKeyType:   "",
-			wantErr:       true,
-			wantErrPrefix: "invalid format:",
+			name:         "Simple domain format (shorthand)",
+			arg:          "example.com",
+			wantCertName: "example.com",
+			wantDomains:  []string{"example.com"},
+			wantKeyType:  "",
+			wantErr:      false,
 		},
 		{
 			name:          "Empty domains list",

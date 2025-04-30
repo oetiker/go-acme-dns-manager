@@ -10,8 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- Refactored command-line argument parsing for better code organization and testability
+- Improved code structure by removing duplicate implementations in test files
+- Enhanced test coverage to verify actual production code instead of test-only implementations
 
 ### Fixed
+- Fixed inconsistent log formatting by standardizing on structured logger throughout the application
+- Fixed user communication for DNS changes by separating log messages from user-facing output
+- Fixed error handling in certificate argument parsing
 
 ## [0.4.0] - 2025-04-29
 
