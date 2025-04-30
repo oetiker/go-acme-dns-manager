@@ -15,15 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Release only when tests have been successful!
 
-## [0.4.2] - 2025-04-30
-
-### New
-
-### Changed
-
-### Fixed
-
-
 ## [0.4.1] - 2025-04-30
 
 ### New
