@@ -11,11 +11,6 @@ on:
           - bugfix   # Increment patch (x.y.Z)
           - feature  # Increment minor (x.Y.0)
           - major    # Increment major (X.0.0)
-      prerelease:
-        description: 'Is this a prerelease?'
-        required: true
-        default: false
-        type: boolean
 
 env:
   PROJECT_NAME: go-acme-dns-manager
@@ -83,9 +78,40 @@ jobs:
               const inProgressRun = inProgressRuns.data.workflow_runs.find(run => run.head_sha === commitSha);
               
               if (inProgressRun) {
-                console.log('Tests are currently running for this commit.');
-                core.setFailed('Tests are still running. Please wait for them to complete before releasing.');
-                return;
+                console.log('Tests are currently running for this commit. Will wait up to 2 minutes for completion...');
+                
+                // Implement a polling mechanism to wait for tests to complete
+                const runId = inProgressRun.id;
+                const maxWaitTimeMs = 2 * 60 * 1000; // 2 minutes in milliseconds
+                const checkIntervalMs = 5000; // Check every 5 seconds
+                const startTime = Date.now();
+                
+                while (Date.now() - startTime < maxWaitTimeMs) {
+                  // Wait for checkIntervalMs milliseconds
+                  await new Promise(resolve => setTimeout(resolve, checkIntervalMs));
+                  
+                  // Check current status of the run
+                  const checkRun = await github.rest.actions.getWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: runId
+                  });
+                  
+                  console.log(`Test run status after ${Math.floor((Date.now() - startTime) / 1000)}s: ${checkRun.data.status}, conclusion: ${checkRun.data.conclusion}`);
+                  
+                  // If the run is complete, check its conclusion
+                  if (checkRun.data.status === 'completed') {
+                    if (checkRun.data.conclusion === 'success') {
+                      console.log('Tests completed successfully while waiting!');
+                      return; // Success - continue with the release
+                    } else {
+                      return core.setFailed(`Tests completed with status: ${checkRun.data.conclusion}. Please fix the failing tests before releasing.`);
+                    }
+                  }
+                }
+                
+                // If we get here, we've timed out waiting
+                return core.setFailed('Timed out waiting for tests to complete. Try again in a minute or check if tests are stuck.');
               }
               
               // No completed runs and no in-progress runs - run tests now
@@ -358,7 +384,7 @@ jobs:
           tag_name: ${{ needs.create-tag.outputs.version }}
           name: Release ${{ needs.create-tag.outputs.version }}
           draft: false
-          prerelease: ${{ github.event.inputs.prerelease }}
+          prerelease: false
           body_path: release_notes_final.md
           fail_on_unmatched_files: true
           files: release-archives/*
