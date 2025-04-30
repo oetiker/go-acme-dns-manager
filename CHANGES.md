@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+
+### Fixed
+
+
+## [0.4.1] - 2025-04-30
+
+### New
+
+### Changed
 - Refactored command-line argument parsing for better code organization and testability
 - Improved code structure by removing duplicate implementations in test files
 - Enhanced test coverage to verify actual production code instead of test-only implementations
