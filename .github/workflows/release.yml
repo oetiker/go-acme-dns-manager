@@ -276,7 +276,6 @@ jobs:
             PKGDIR_CONTENTS="$TEMP_BUILD_DIR/$PKGDIR_BASE"
             mkdir -p "$PKGDIR_CONTENTS"
             mv "$TEMP_BUILD_DIR/$BINARY_NAME" "$PKGDIR_CONTENTS/" # Move the built binary
-            cp config.yaml "$PKGDIR_CONTENTS/config-sample.yaml"
             cp README.md "$PKGDIR_CONTENTS/"
             cp CHANGES.md "$PKGDIR_CONTENTS/"
             [ -f LICENSE ] && cp LICENSE "$PKGDIR_CONTENTS/"
