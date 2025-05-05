@@ -13,15 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-
-## 0.5.3 - 2025-05-05
-
-### New
-
-### Changed
-
-### Fixed
-
 - Fixed custom DNS resolver configuration not being passed to Lego client
 - Fixed nil pointer dereference when verifying CNAME records in domain sharing scenarios
 - Restricted Lego to DNS-01 challenge type only (disabled HTTP-01 and TLS-ALPN-01)

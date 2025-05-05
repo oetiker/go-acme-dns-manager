@@ -272,7 +272,7 @@ jobs:
             GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=${VERSION_NO_V}" -o "$TEMP_BUILD_DIR/$BINARY_NAME" ./cmd/${{ env.PROJECT_NAME }}
 
             # Prepare package contents within the temp dir
-            PKGDIR_BASE="${{ env.PROJECT_NAME }}-${VERSION}-${GOOS}-${GOARCH}"
+            PKGDIR_BASE="${{ env.PROJECT_NAME }}-${VERSION_NO_V}-${GOOS}-${GOARCH}"
             PKGDIR_CONTENTS="$TEMP_BUILD_DIR/$PKGDIR_BASE"
             mkdir -p "$PKGDIR_CONTENTS"
             mv "$TEMP_BUILD_DIR/$BINARY_NAME" "$PKGDIR_CONTENTS/" # Move the built binary
@@ -392,3 +392,8 @@ jobs:
           files: release-archives/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ needs.create-tag.outputs.version }}
+          echo "name=Release ${TAG#v}" >> $GITHUB_OUTPUT
+
+#END
