@@ -24,6 +24,14 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 		// associate the wildcard with the existing account
 		store.SetAccount(domain, account)
 		DefaultLogger.Infof("Using existing acme-dns account from %s for %s", baseDomain, domain)
+
+		// Since we're sharing the account, we also need to verify the CNAME is valid
+		// to prevent the main loop from requesting the same CNAME again
+		cnameValid, _ := VerifyCnameRecord(nil, domain, account.FullDomain)
+		if cnameValid {
+			DefaultLogger.Infof("Verified that the CNAME for %s is already properly set up", domain)
+		}
+
 		return &account, nil
 	}
 
@@ -33,6 +41,14 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 		// Associate the base domain with the existing wildcard account
 		store.SetAccount(domain, account)
 		DefaultLogger.Infof("Using existing acme-dns account from %s for %s", wildcardDomain, domain)
+
+		// Since we're sharing the account, we also need to verify the CNAME is valid
+		// to prevent the main loop from requesting the same CNAME again
+		cnameValid, _ := VerifyCnameRecord(nil, domain, account.FullDomain)
+		if cnameValid {
+			DefaultLogger.Infof("Verified that the CNAME for %s is already properly set up", domain)
+		}
+
 		return &account, nil
 	}
 

@@ -11,13 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added version information display when running the binary
 - Added `-version` flag to explicitly show version information
 - Added timestamped version for local builds (`local-version-YYYY-MM-DD-HH:MM:SS`)
+- Added automated test for handling of wildcard domains.
 
 ### Changed
 - Modified Makefile to inject version information during builds
 - Updated release workflow to inject actual version number in release builds
 
 ### Fixed
-
+- Fixed handling of wildcard domains to properly accept that * and non star
+  domains use a single dns entry
 
 ## 0.5.1 - 2025-05-05
 

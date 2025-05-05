@@ -500,7 +500,18 @@ func main() {
 		// 1. Verify/Register ACME DNS for all domains in this group
 		needsManualUpdate := false
 		logMessage("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
+		// For wildcard domains, we need to keep track of which base domains we've already validated
+		checkedBaseDomains := make(map[string]bool)
+
 		for _, domain := range domains {
+			// Check if this is a wildcard domain and if we've already validated the base domain
+			baseDomain := manager.GetBaseDomain(domain)
+			if strings.HasPrefix(domain, "*.") && checkedBaseDomains[baseDomain] {
+				// We've already validated the base domain CNAME, skip redundant checks
+				logMessage("  Using already verified CNAME for %s based on %s", domain, baseDomain)
+				continue
+			}
+
 			account, exists := store.GetAccount(domain)
 
 			if !exists {
@@ -528,6 +539,11 @@ func main() {
 			// Account exists, verify CNAME
 			logMessage("Verifying CNAME for %s...", domain)
 			cnameValid, err := manager.VerifyCnameRecord(cfg, domain, account.FullDomain)
+
+			// If this is a base domain and the CNAME is valid, mark it as checked
+			if cnameValid && !strings.HasPrefix(domain, "*.") {
+				checkedBaseDomains[domain] = true
+			}
 			if err != nil {
 				logMessage("  Warning: Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
 
