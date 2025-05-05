@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+
+## [0.5.0] - 2025-05-05
+
+### New
 - Added `-log-level` flag to control verbosity (debug|info|warn|error)
 - Added `-log-format` flag to control output format (go|emoji|color|ascii)
 - Added automatic terminal detection to use emoji format when connected to a TTY
