@@ -379,6 +379,12 @@ jobs:
           echo "Release notes extracted to release_notes_final.md:"
           cat release_notes_final.md
 
+      - name: Set version without v prefix
+        id: set_version_without_v
+        run: |
+          TAG=${{ needs.create-tag.outputs.version }}
+          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -392,8 +398,5 @@ jobs:
           files: release-archives/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=${{ needs.create-tag.outputs.version }}
-          echo "name=Release ${TAG#v}" >> $GITHUB_OUTPUT
 
 #END
