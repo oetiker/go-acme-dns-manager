@@ -22,7 +22,11 @@ func TestCertificateRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: Failed to remove temporary directory: %v", err)
+		}
+	}()
 
 	// Create test certificate directories
 	certsDir := filepath.Join(tempDir, "certificates")
@@ -157,11 +161,12 @@ autoDomains:
 
 			// Generate a new certificate to simulate renewal
 			var domains []string
-			if certName == "example-com" {
+			switch certName {
+			case "example-com":
 				domains = validDomains
-			} else if certName == "expired-test" {
+			case "expired-test":
 				domains = expiredDomains
-			} else if certName == "soon-expiring" {
+			case "soon-expiring":
 				domains = expiringSoonDomains
 			}
 

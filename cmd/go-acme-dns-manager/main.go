@@ -123,7 +123,7 @@ func main() {
 
 	// --- Logger Setup ---
 	loggerLevel := manager.LogLevelInfo // Default log level
-	var loggerFormat manager.LogFormat = manager.LogFormatDefault
+	var loggerFormat manager.LogFormat  // Will be initialized later
 
 	// Parse log level flag if specified
 	if *logLevel != "" {

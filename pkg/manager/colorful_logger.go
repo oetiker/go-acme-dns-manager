@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 )
 
 // ANSI color codes
@@ -89,7 +90,11 @@ func (h *SimpleHandler) Handle(_ context.Context, r slog.Record) error {
 		msg = colorBold + msg + colorReset
 	}
 
-	fmt.Fprintf(h.w, "%s %s\n", prefix, msg)
+	_, err := fmt.Fprintf(h.w, "%s %s\n", prefix, msg)
+	if err != nil {
+		// We can't do much with a logging error except note it
+		fmt.Fprintf(os.Stderr, "Error writing log: %v\n", err)
+	}
 	return nil
 }
 

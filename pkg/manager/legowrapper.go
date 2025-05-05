@@ -269,7 +269,8 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	}
 
 	// Perform the requested action
-	if action == "init" {
+	switch action {
+	case "init":
 		DefaultLogger.Infof("Requesting new certificate for domains: %v", domainsToProcess) // Use domainsToProcess
 		request := certificate.ObtainRequest{
 			Domains: domainsToProcess, // Use domainsToProcess
@@ -287,7 +288,7 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 		if err := saveCertificates(cfg, certName, certificates); err != nil {
 			DefaultLogger.Warnf("Warning: failed to save certificate '%s': %v", certName, err)
 		}
-	} else if action == "renew" {
+	case "renew":
 		// Renewal typically renews the *existing* certificate identified by its primary domain,
 		// which should cover all domains listed in the cert. Lego's Renew function handles this.
 		// We just need the primary domain from the list to load the existing cert resource.
@@ -343,7 +344,8 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 				DefaultLogger.Warnf("Warning: failed to save renewed certificate '%s': %v", certName, err)
 			}
 		}
-	} else {
+	default:
+		// Handle unknown action
 		return fmt.Errorf("internal error: unsupported action '%s'", action)
 	}
 

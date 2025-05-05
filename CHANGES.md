@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed wildcard domain handling for DNS challenges to use the base domain correctly
 - Fixed various log messages to use the proper logging system instead of direct prints
+- Fixed multiple linting errors, including unchecked error return values in test files and file operations
+- Improved code quality by using tagged switch statements where appropriate
+- Corrected ineffectual variable assignments in the main application
 
 ## [0.4.3] - 2025-04-30
 

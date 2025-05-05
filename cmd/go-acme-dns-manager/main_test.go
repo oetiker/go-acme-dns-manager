@@ -147,7 +147,11 @@ func TestMainIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp config: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Warning: Failed to remove temporary file: %v", err)
+		}
+	}()
 
 	// Write a test config with staging ACME server
 	configContent := `
@@ -160,7 +164,9 @@ cert_storage_path: ".lego-test"
 	if _, err := tempFile.Write([]byte(configContent)); err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
-	tempFile.Close()
+	if err := tempFile.Close(); err != nil {
+		t.Fatalf("Failed to close temporary file: %v", err)
+	}
 
 	// Don't call main() directly as it calls os.Exit()
 	// Instead we'll just test a small part of the functionality directly

@@ -59,7 +59,12 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 	if err != nil {
 		return nil, fmt.Errorf("sending registration request to %s: %w", registerURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log but don't return, we already have a response to process
+			DefaultLogger.Errorf("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

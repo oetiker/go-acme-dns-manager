@@ -13,7 +13,11 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: Failed to remove temporary directory: %v", err)
+		}
+	}()
 
 	// Create a valid config file
 	configPath := filepath.Join(tempDir, "config.yaml")
@@ -114,7 +118,11 @@ func TestAccountStoreOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: Failed to remove temporary directory: %v", err)
+		}
+	}()
 
 	// Create a store with a temporary file path
 	storePath := filepath.Join(tempDir, "accounts.json")

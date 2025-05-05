@@ -35,18 +35,18 @@ func NewMockAcmeServer() *MockAcmeServer {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/directory":
+		switch r.URL.Path {
+		case "/directory":
 			mock.handleDirectory(w, r)
-		case r.URL.Path == "/new-account":
+		case "/new-account":
 			mock.handleNewAccount(w, r)
-		case r.URL.Path == "/new-order":
+		case "/new-order":
 			mock.handleNewOrder(w, r)
-		case r.URL.Path == "/challenge":
+		case "/challenge":
 			mock.handleChallenge(w, r)
-		case r.URL.Path == "/finalize-order":
+		case "/finalize-order":
 			mock.handleFinalizeOrder(w, r)
-		case r.URL.Path == "/certificate":
+		case "/certificate":
 			mock.handleCertificate(w, r)
 		default:
 			http.NotFound(w, r)

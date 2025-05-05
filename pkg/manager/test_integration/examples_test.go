@@ -31,7 +31,11 @@ func TestMockServers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Warning: Failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusCreated {
 			t.Errorf("Expected status 201, got %d", resp.StatusCode)
@@ -51,7 +55,11 @@ func TestMockServers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Warning: Failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -82,15 +90,23 @@ func TestMockServers(t *testing.T) {
 				if resp1.StatusCode == http.StatusNotFound && resp2.StatusCode == http.StatusOK {
 					// Success - ACME DNS returns 404 for unimplemented /health endpoint
 					// and ACME returns 200 for /directory
-					resp1.Body.Close()
-					resp2.Body.Close()
+					if err := resp1.Body.Close(); err != nil {
+						t.Logf("Warning: Failed to close response body: %v", err)
+					}
+					if err := resp2.Body.Close(); err != nil {
+						t.Logf("Warning: Failed to close response body: %v", err)
+					}
 					return
 				}
 				if resp1.Body != nil {
-					resp1.Body.Close()
+					if err := resp1.Body.Close(); err != nil {
+						t.Logf("Warning: Failed to close response body: %v", err)
+					}
 				}
 				if resp2.Body != nil {
-					resp2.Body.Close()
+					if err := resp2.Body.Close(); err != nil {
+						t.Logf("Warning: Failed to close response body: %v", err)
+					}
 				}
 			}
 
