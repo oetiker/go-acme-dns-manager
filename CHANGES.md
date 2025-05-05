@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+
+## 0.5.2 - 2025-05-05
+
+### New
 - Added version information display when running the binary
 - Added `-version` flag to explicitly show version information
 - Added timestamped version for local builds (`local-version-YYYY-MM-DD-HH:MM:SS`)
