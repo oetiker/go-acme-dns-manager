@@ -29,6 +29,12 @@ func TestVerifyCnameRecordLogic(t *testing.T) {
 			expectedTarget:   "test.acme-dns.com",
 			dnsMockAvailable: false,
 		},
+		{
+			name:             "Wildcard domain",
+			domain:           "*.example.com",
+			expectedTarget:   "test.acme-dns.com",
+			dnsMockAvailable: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -56,6 +62,50 @@ func TestVerifyCnameRecordLogic(t *testing.T) {
 			if tc.dnsMockAvailable == false {
 				t.Logf("Note: This test only checks basic function logic, not actual DNS resolution")
 				t.Logf("DNS resolution error (expected): %v", err)
+			}
+		})
+	}
+}
+
+// Test the GetBaseDomain function
+func TestGetBaseDomain(t *testing.T) {
+	tests := []struct {
+		name     string
+		domain   string
+		expected string
+	}{
+		{
+			name:     "Regular domain",
+			domain:   "example.com",
+			expected: "example.com",
+		},
+		{
+			name:     "Subdomain",
+			domain:   "sub.example.com",
+			expected: "sub.example.com",
+		},
+		{
+			name:     "Wildcard domain",
+			domain:   "*.example.com",
+			expected: "example.com",
+		},
+		{
+			name:     "Multi-level subdomain",
+			domain:   "test.sub.example.com",
+			expected: "test.sub.example.com",
+		},
+		{
+			name:     "Multi-level wildcard subdomain",
+			domain:   "*.sub.example.com",
+			expected: "sub.example.com",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GetBaseDomain(tc.domain)
+			if result != tc.expected {
+				t.Errorf("GetBaseDomain(%q) = %q, expected %q", tc.domain, result, tc.expected)
 			}
 		})
 	}

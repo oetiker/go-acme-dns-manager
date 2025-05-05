@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
 // Define a struct to hold parsed certificate requests
@@ -101,6 +101,8 @@ var (
 	quietMode           = flag.Bool("quiet", false, "Reduce output in auto mode (useful for cron jobs)")
 	printConfigTemplate = flag.Bool("print-config-template", false, "Print a default configuration template to stdout and exit")
 	debugMode           = flag.Bool("debug", false, "Enable debug logging")
+	logLevel            = flag.String("log-level", "", "Set logging level (debug|info|warn|error), overrides -debug flag if specified")
+	logFormat           = flag.String("log-format", "", "Set logging format (go|emoji|color|ascii), overrides -no-color and -no-emoji flags")
 )
 
 func main() {
@@ -119,15 +121,56 @@ func main() {
 	}
 	flag.Parse()
 
-	// Setup logger with the appropriate level
-	logLevel := manager.LogLevelInfo
-	if *quietMode && *autoMode {
-		logLevel = manager.LogLevelQuiet
-	} else if *debugMode {
-		logLevel = manager.LogLevelDebug
+	// --- Logger Setup ---
+	loggerLevel := manager.LogLevelInfo // Default log level
+	var loggerFormat manager.LogFormat = manager.LogFormatDefault
+
+	// Parse log level flag if specified
+	if *logLevel != "" {
+		switch strings.ToLower(*logLevel) {
+		case "debug":
+			loggerLevel = manager.LogLevelDebug
+		case "info":
+			loggerLevel = manager.LogLevelInfo
+		case "warn", "warning":
+			loggerLevel = manager.LogLevelWarn
+		case "error":
+			loggerLevel = manager.LogLevelError
+		default:
+			fmt.Fprintf(os.Stderr, "Invalid log level: %s. Using default (info).\n", *logLevel)
+		}
+	} else {
+		// Use the legacy flags if log-level is not specified
+		if *quietMode && *autoMode {
+			loggerLevel = manager.LogLevelQuiet
+		} else if *debugMode {
+			loggerLevel = manager.LogLevelDebug
+		}
 	}
-	logger := manager.NewLogger(os.Stdout, logLevel)
-	manager.SetupDefaultLogger(logLevel) // Set the default logger for the manager package
+
+	// Parse log format flag if specified
+	if *logFormat != "" {
+		switch strings.ToLower(*logFormat) {
+		case "go":
+			loggerFormat = manager.LogFormatGo
+		case "emoji":
+			loggerFormat = manager.LogFormatEmoji
+		case "color":
+			loggerFormat = manager.LogFormatColor
+		case "ascii":
+			loggerFormat = manager.LogFormatASCII
+		default:
+			fmt.Fprintf(os.Stderr, "Invalid log format: %s. Using default.\n", *logFormat)
+			loggerFormat = manager.LogFormatDefault
+		}
+	} else {
+		// Set format based on legacy flags
+		loggerFormat = manager.LogFormatDefault
+	}
+
+	// Set up the logger
+	manager.SetupDefaultLogger(loggerLevel, loggerFormat) // Set the default logger for the manager package
+	logger := manager.GetDefaultLogger()                  // Use the configured default logger
 
 	// Define logMessage and logImportant as wrappers for the new logger
 	logMessage := logger.Infof
@@ -162,7 +205,7 @@ func main() {
 	}
 
 	// Load configuration (file must exist at this point)
-	fmt.Printf("Loading configuration from %s...\n", *configPath)
+	logger.Infof("Loading configuration from %s...", *configPath)
 	cfg, err := manager.LoadConfig(*configPath)
 	if err != nil {
 		// Check for placeholder email only, as domains list is removed/optional
@@ -177,7 +220,7 @@ func main() {
 		logger.Errorf("Error loading config file %s: %v", *configPath, err)
 		os.Exit(1)
 	}
-	fmt.Println("Configuration loaded successfully.")
+	logger.Info("Configuration loaded successfully.")
 
 	// --- Mode Determination ---
 	positionalArgs := flag.Args()
@@ -185,7 +228,8 @@ func main() {
 	isAutoMode := *autoMode // Use renamed flag variable
 
 	if isManualMode && isAutoMode {
-		log.Fatal("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
+		logger.Error("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
+		os.Exit(1)
 	}
 	if !isManualMode && !isAutoMode {
 		fmt.Fprintf(os.Stderr, "Error: No operation specified. Provide certificate arguments or use -auto flag.\n\n")
@@ -195,10 +239,11 @@ func main() {
 
 	// --- Account Store Initialization ---
 	accountsFilePath := filepath.Join(cfg.CertStoragePath, "acme-dns-accounts.json") // Use renamed field
-	fmt.Printf("Loading ACME DNS accounts from %s...\n", accountsFilePath)
+	logger.Infof("Loading ACME DNS accounts from %s...", accountsFilePath)
 	store, err := manager.NewAccountStore(accountsFilePath)
 	if err != nil {
-		log.Fatalf("Error initializing account store from %s: %v", accountsFilePath, err)
+		logger.Errorf("Error initializing account store from %s: %v", accountsFilePath, err)
+		os.Exit(1)
 	}
 
 	// Log that accounts were loaded successfully
@@ -209,7 +254,7 @@ func main() {
 	requestedNames := make(map[string]struct{}) // For duplicate name check
 
 	if isManualMode {
-		log.Println("Mode: Manual Specification")
+		logger.Debug("Mode: Manual Specification")
 		for _, arg := range positionalArgs {
 			// Use the shared parsing function for all argument formats
 			certName, domains, keyType, err := parseCertArg(arg)
@@ -263,7 +308,7 @@ func main() {
 	renewalThreshold := cfg.GetRenewalThreshold() // Get duration from config/default
 
 	for _, req := range requests {
-		log.Printf("Checking certificate: %s (%v)", req.Name, req.Domains)
+		logger.Debugf("Checking certificate: %s (%v)", req.Name, req.Domains)
 		action := "init" // Default action is init
 		// skip := false // Removed unused variable
 
@@ -273,20 +318,22 @@ func main() {
 		if _, err := os.Stat(metaPath); err == nil {
 			// Metadata exists, potential renew
 			action = "renew"
-			log.Printf("  Existing metadata found (%s). Checking domains and expiry.", metaPath)
+			logger.Debugf("Existing metadata found (%s). Checking domains and expiry.", metaPath)
 
 			// Load existing metadata to check domains
 			existingCertData, err := manager.LoadCertificateResource(cfg, req.Name) // Assuming LoadCertificateResource exists
 			if err != nil {
-				log.Fatalf("Error loading existing certificate metadata for '%s' from %s: %v", req.Name, metaPath, err)
+				logger.Errorf("Error loading existing certificate metadata for '%s' from %s: %v", req.Name, metaPath, err)
+				os.Exit(1)
 			}
 
 			// Simplified Check: Compare only the primary domain.
 			// A full SAN list comparison seems problematic with the loaded resource struct.
 			// This ensures the main domain matches the existing cert.
 			if len(req.Domains) > 0 && req.Domains[0] != existingCertData.Domain {
-				log.Fatalf("Error: Primary domain mismatch for certificate '%s'.\n  Requested primary: %s\n  Existing primary (%s): %s\nPlease use a different certificate name or manually remove the old files.",
+				logger.Errorf("Error: Primary domain mismatch for certificate '%s'.\n  Requested primary: %s\n  Existing primary (%s): %s\nPlease use a different certificate name or manually remove the old files.",
 					req.Name, req.Domains[0], metaPath, existingCertData.Domain)
+				os.Exit(1)
 			} else if len(req.Domains) == 0 {
 				// Should not happen due to earlier parsing checks, but safety first
 				log.Fatalf("Internal Error: Empty domain list for certificate request '%s'", req.Name)
@@ -344,16 +391,16 @@ func main() {
 								}
 								log.Printf("  If this is not intended, please use a different certificate name.")
 							} else {
-								log.Printf("  All domains match between requested domains and existing certificate.")
+								logger.Debugf("All domains match between requested domains and existing certificate.")
 							}
 						} else {
-							log.Printf("  Warning: Could not parse certificate from %s: %v. Skipping SAN comparison.", certPath, err)
+							logger.Warnf("Could not parse certificate from %s: %v. Skipping SAN comparison.", certPath, err)
 						}
 					} else {
-						log.Printf("  Warning: Failed to decode PEM block from %s. Skipping SAN comparison.", certPath)
+						logger.Warnf("Failed to decode PEM block from %s. Skipping SAN comparison.", certPath)
 					}
 				} else {
-					log.Printf("  Warning: Could not read certificate file %s: %v. Skipping SAN comparison.", certPath, err)
+					logger.Warnf("Could not read certificate file %s: %v. Skipping SAN comparison.", certPath, err)
 				}
 
 			}
@@ -387,9 +434,10 @@ func main() {
 
 		} else if !os.IsNotExist(err) {
 			// Error checking file other than not found
-			log.Fatalf("Error checking certificate metadata file %s: %v", metaPath, err)
+			logger.Errorf("Error checking certificate metadata file %s: %v", metaPath, err)
+			os.Exit(1)
 		} else {
-			log.Printf("  No existing metadata found (%s). Action set to 'init'.", metaPath)
+			logger.Debugf("No existing metadata found (%s). Action set to 'init'.", metaPath)
 		}
 
 		if action != "skip" {
@@ -398,7 +446,7 @@ func main() {
 	} // End pre-check loop
 
 	if len(tasks) == 0 {
-		log.Println("No certificates require processing.")
+		logger.Info("No certificates require processing.")
 		os.Exit(0)
 	}
 
@@ -451,7 +499,7 @@ func main() {
 			}
 
 			// Account exists, verify CNAME
-			logMessage("  Verifying CNAME for %s...", domain)
+			logMessage("Verifying CNAME for %s...", domain)
 			cnameValid, err := manager.VerifyCnameRecord(cfg, domain, account.FullDomain)
 			if err != nil {
 				logMessage("  Warning: Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
@@ -513,27 +561,57 @@ func main() {
 		}
 
 	} // End task processing loop
-
 	// --- Final Status ---
 	if len(requiredCNAMEs) > 0 {
 		// Print DNS changes directly to stdout as these are important user-facing information
 		fmt.Println("\n===== REQUIRED DNS CHANGES =====")
-		fmt.Println("The following CNAME records need to be created or updated in your DNS:")
+		fmt.Println("Add the following CNAME records to your DNS:")
+		fmt.Println()
+
+		// Create maps to group by CNAME record AND by target
+		cnameMap := make(map[string]map[string][]string) // Map[CNAMERecord]Map[Target][]Domains
+
+		// First organize all records
 		for _, cname := range requiredCNAMEs {
-			if strings.HasPrefix(cname.Domain, "*.") {
-				fmt.Printf("Domain: %s (wildcard)\n", cname.Domain)
-			} else {
-				fmt.Printf("Domain: %s\n", cname.Domain)
+			// Initialize the map for this CNAME record if it doesn't exist
+			if _, exists := cnameMap[cname.CNAMERecord]; !exists {
+				cnameMap[cname.CNAMERecord] = make(map[string][]string)
 			}
-			fmt.Printf("  Create CNAME: %s. IN CNAME %s.\n", cname.CNAMERecord, cname.Target)
-			fmt.Println("")
+
+			// Add this domain to the appropriate target group for this CNAME record
+			cnameMap[cname.CNAMERecord][cname.Target] = append(
+				cnameMap[cname.CNAMERecord][cname.Target],
+				cname.Domain,
+			)
 		}
+
+		// Now print each unique CNAME record with its domains grouped by target
+		for cnameRecord, targetGroups := range cnameMap {
+			for target, domains := range targetGroups {
+				// Create a proper comment showing all domains using this record
+				commentParts := []string{}
+				for _, domain := range domains {
+					if strings.HasPrefix(domain, "*.") {
+						commentParts = append(commentParts, domain+" (wildcard)")
+					} else {
+						commentParts = append(commentParts, domain)
+					}
+				}
+				comment := strings.Join(commentParts, ", ")
+
+				// Print in BIND format with comment
+				fmt.Printf("; %s\n", comment)
+				fmt.Printf("%s. IN CNAME %s.\n\n", cnameRecord, target)
+			}
+		}
+
 		fmt.Println("Please make these DNS changes and run the command again.")
-		anyFailure = true
+		anyFailure = false // Reset failure flag for manual intervention
+		os.Exit(1)         // Exit with error code for manual intervention
 	}
 
 	if anyFailure {
-		logImportant("\nOne or more operations failed or require manual intervention.")
+		logImportant("One or more operations failed or require manual intervention.")
 		os.Exit(1)
 	}
 

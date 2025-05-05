@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_mocks"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager/test_mocks"
 )
 
 // TestMockServers demonstrates how to use both mock servers together

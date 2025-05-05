@@ -1,0 +1,7 @@
+email: "test@example.com"
+acme_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+acme_dns_server: "https://auth.acme-dns.io"
+data_dir: "./data"
+
+# Uncomment if you need to use a proxy
+# proxy: "http://proxy:3128"

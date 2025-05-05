@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_helpers"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager/test_helpers"
 )
 
 // TestCertificateRenewal tests the certificate renewal logic

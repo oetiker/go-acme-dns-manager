@@ -23,6 +23,22 @@ const (
 	LogLevelQuiet
 )
 
+// LogFormat represents the logging output format
+type LogFormat int
+
+const (
+	// LogFormatDefault uses emoji format if output is to a TTY, otherwise Go format
+	LogFormatDefault LogFormat = iota
+	// LogFormatGo uses standard Go log format with timestamps
+	LogFormatGo
+	// LogFormatEmoji uses emoji with colors for log prefixes
+	LogFormatEmoji
+	// LogFormatColor uses colored text without emoji
+	LogFormatColor
+	// LogFormatASCII uses plain text without colors or emoji
+	LogFormatASCII
+)
+
 // Logger is a wrapper around slog to provide consistent logging across the application
 type Logger struct {
 	slogger *slog.Logger
@@ -172,9 +188,55 @@ func convertArgsToAttrs(args []interface{}) []any {
 	return args
 }
 
-// SetupDefaultLogger initializes the default logger with the specified level
-func SetupDefaultLogger(level LogLevel) {
-	DefaultLogger = NewLogger(os.Stdout, level)
+// isTerminal reports whether the file descriptor is connected to a terminal
+func isTerminal(fd uintptr) bool {
+	// A simple check - real terminals usually have a non-zero size
+	fileInfo, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	// If it's a character device, it's likely a terminal
+	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+}
+
+// SetupDefaultLogger initializes the default logger with the specified level and format
+func SetupDefaultLogger(level LogLevel, format ...LogFormat) {
+	// Determine which format to use
+	logFormat := LogFormatDefault
+	if len(format) > 0 {
+		logFormat = format[0]
+	}
+
+	// If format is Default, determine based on terminal detection
+	if logFormat == LogFormatDefault {
+		if isTerminal(os.Stdout.Fd()) {
+			// Connected to a terminal, use emoji format by default
+			logFormat = LogFormatEmoji
+		} else {
+			// Not connected to a terminal, use standard Go format
+			logFormat = LogFormatGo
+		}
+	}
+
+	// Create the logger based on format
+	switch logFormat {
+	case LogFormatGo:
+		// Standard Go format with timestamps
+		DefaultLogger = NewLogger(os.Stdout, level)
+	case LogFormatEmoji:
+		// Emoji format with colors if not disabled
+		DefaultLogger = NewColorfulLogger(os.Stdout, level, false, true)
+	case LogFormatColor:
+		// Colored format without emoji
+		DefaultLogger = NewColorfulLogger(os.Stdout, level, true, false)
+	case LogFormatASCII:
+		// Plain text format without colors or emoji
+		DefaultLogger = NewColorfulLogger(os.Stdout, level, false, false)
+	default:
+		// Fall back to debug logger if all else fails
+		DefaultLogger = NewLogger(os.Stdout, level)
+	}
 }
 
 // GetDefaultLogger returns the default logger

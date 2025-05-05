@@ -15,6 +15,10 @@ This tool automates the process of obtaining and renewing Let's Encrypt certific
 *   Supports automated renewals via config file (`auto_domains` section) and `-auto` flag.
 *   Automatically determines `init` or `renew` action based on certificate existence.
 *   Self-contained binary with minimal external dependencies.
+*   Configurable logging with support for different formats (Go, Emoji, Color, ASCII) and levels.
+*   Smart terminal detection to provide user-friendly output when attached to a TTY.
+*   Proper wildcard domain handling that shares ACME DNS accounts between wildcard and base domains.
+*   BIND-style formatted DNS CNAME records for easy copying into zone files.
 
 ## Installation / Building
 
@@ -121,6 +125,10 @@ The tool operates in two main modes:
 *   The format is `cert-name@domain1,domain2,...`. Wildcard domains (e.g., `*.example.com`) are supported in the domain list.
 *   **Shorthand:** For single-domain certificates, you can omit the `cert-name@` prefix and just provide the domain name (e.g., `example.com`). The tool will use the domain name as the certificate name in this case (e.g., saving files as `example.com.crt`, `example.com.key`).
 *   The `cert-name` (explicit or implied) is used for storing certificate files.
+*   **Wildcard Domains:** For wildcard certificates (e.g., `*.example.com`), the tool:
+    *   Creates appropriate CNAME records pointing to `_acme-challenge.example.com` (base domain, no wildcard)
+    *   Shares ACME DNS accounts between wildcard and base domains to simplify management
+    *   Properly handles challenge verification for both wildcard and base domains
 *   The tool automatically determines if it needs to perform an initial request (`init`) or a renewal (`renew`) based on whether certificate files for that `cert-name` already exist in the `cert_storage_path`.
 *   **Important:** If requesting a certificate name that already exists, the tool checks if the primary domain matches the existing certificate. It currently *does not* verify if the full list of Subject Alternative Names (SANs) matches the existing certificate due to limitations in reading SANs from the stored metadata file. Ensure your request matches the intended certificate.
 
@@ -129,12 +137,39 @@ The tool operates in two main modes:
 ```bash
 # Check all certificates defined in config.yaml and init/renew if necessary
 ./go-acme-dns-manager -config my.yaml -auto
+
+# Use specific logging options
+./go-acme-dns-manager -config my.yaml -log-level=debug -log-format=color cert1@example.com
 ```
 
 *   This mode requires the `auto_domains` section to be configured in `config.yaml`.
 *   No certificate arguments should be provided on the command line.
 *   The tool iterates through each certificate defined under `auto_domains.certs`.
 *   For each certificate, it checks if the `.crt` file exists and if its expiry date is within the configured `grace_days`.
+
+**3. Logging Options:** Control the verbosity and output format of logging.
+
+```bash
+# Use debug level logging with colorful output
+./go-acme-dns-manager -config my.yaml -log-level=debug -log-format=color cert1@example.com
+
+# Use machine-readable logs (good for automation/cron jobs)
+./go-acme-dns-manager -config my.yaml -log-format=go -auto
+```
+
+*   `-log-level`: Set the minimum log level to display (default: "info")
+    *   `debug`: Show all detailed debugging information
+    *   `info`: Show standard operational information (default)
+    *   `warn`: Show warnings and errors only
+    *   `error`: Show only errors
+*   `-log-format`: Set the output format for logs
+    *   `go`: Standard Go log format with timestamps (machine-readable)
+    *   `emoji`: Colorful output with emoji indicators (default when connected to a terminal)
+    *   `color`: Colored text output without emoji
+    *   `ascii`: Plain text output without colors or emoji
+*   `-debug`: Enable debug-level logging (shorthand for `-log-level=debug`)
+*   `-quiet`: Reduce output in auto mode (useful for cron jobs, shows only errors and important messages)
+*   The tool automatically detects if it's connected to a terminal and selects an appropriate format (emoji when connected to a TTY, go format otherwise) unless explicitly overridden by the `-log-format` flag.
 *   If the certificate doesn't exist or is nearing expiry, it performs an `init` or `renew` action. Otherwise, it skips the certificate.
 
 **General Workflow (applies to both modes for each certificate processed):**
@@ -142,7 +177,9 @@ The tool operates in two main modes:
 1.  **ACME DNS Check/Registration:**
     *   The tool checks `<cert_storage_path>/acme-dns-accounts.json` for credentials for each domain in the current certificate request.
     *   If credentials are missing for a domain, it registers with the `acme-dns` server.
-    *   The required `_acme-challenge.yourdomain.com CNAME ...` record is printed.
+    *   The required `_acme-challenge.yourdomain.com CNAME ...` record is printed in BIND-compatible format.
+    *   For wildcard domains (`*.example.com`), it correctly uses the base domain (`example.com`) for the challenge record.
+    *   Wildcard and base domains share the same ACME DNS account, simplifying certificate management.
     *   The tool saves the new credentials to `<cert_storage_path>/acme-dns-accounts.json` and **exits**.
     *   **You must manually create the CNAME record(s) in your DNS zone and run the command again.**
 2.  **CNAME Verification:**
@@ -153,13 +190,40 @@ The tool operates in two main modes:
     *   The action (`init` or `renew`) is determined automatically based on file existence.
     *   Certificates and the Let's Encrypt account key are saved in the `cert_storage_path`.
 
+**DNS Output Format:**
+
+When DNS records need to be created or modified, the tool provides BIND-compatible output:
+
+```
+===== REQUIRED DNS CHANGES =====
+Add the following CNAME records to your DNS:
+
+; example.com, www.example.com
+_acme-challenge.example.com. IN CNAME 1234abcd-wxyz-9876-asdf.acme-dns.yourdomain.com.
+
+; *.example.org (wildcard)
+_acme-challenge.example.org. IN CNAME 5678efgh-ijkl-5432-mnop.acme-dns.yourdomain.com.
+```
+
+*   Records are grouped by target to minimize duplicate entries
+*   Comments indicate which domain(s) each record serves
+*   Wildcard domains are clearly marked
+*   Full domain names include trailing dots for BIND compatibility
+*   Records are ready to copy directly into zone files
+
 ## Development and Testing
 
 This project includes a comprehensive testing framework that allows testing both individual components and the entire certificate lifecycle with mock servers. This approach enables testing of ACME DNS and Let's Encrypt interactions without needing actual external services.
 
-For detailed information on:
-- Development practices, see [DEVELOPMENT.md](DEVELOPMENT.md)
-- Testing approach and mock servers, see [TESTING.md](TESTING.md)
+For detailed information on development and testing, see [ROADMAP.md](ROADMAP.md). This document serves as the comprehensive guide for contributors, covering:
+
+- Project structure and organization
+- Development workflow
+- Testing approach and requirements
+- Code quality standards
+- Feature implementation guidelines
+- Continuous integration
+- Release process
 
 ### Running Tests
 

@@ -12,8 +12,30 @@ import (
 
 // RegisterNewAccount interacts with the acme-dns server's /register endpoint.
 // It updates the account store with the new account details and saves the store file.
+// For wildcard domains, it uses the base domain name for registration to maintain consistency.
 // Exported function
 func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeDnsAccount, error) {
+	// Extract the base domain for registration purposes
+	baseDomain := GetBaseDomain(domain)
+
+	// Check if we already have an account for the base domain
+	if account, exists := store.GetAccount(baseDomain); exists && domain != baseDomain {
+		// If we're registering a wildcard but already have an account for the base domain,
+		// associate the wildcard with the existing account
+		store.SetAccount(domain, account)
+		DefaultLogger.Infof("Using existing acme-dns account from %s for %s", baseDomain, domain)
+		return &account, nil
+	}
+
+	// Or if we're registering a base domain but already have an account for the wildcard version
+	wildcardDomain := "*." + baseDomain
+	if account, exists := store.GetAccount(wildcardDomain); exists && domain != wildcardDomain {
+		// Associate the base domain with the existing wildcard account
+		store.SetAccount(domain, account)
+		DefaultLogger.Infof("Using existing acme-dns account from %s for %s", wildcardDomain, domain)
+		return &account, nil
+	}
+
 	registerURL, err := url.JoinPath(cfg.AcmeDnsServer, "/register")
 	if err != nil {
 		return nil, fmt.Errorf("constructing register URL: %w", err)
@@ -55,15 +77,30 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 		return nil, fmt.Errorf("parsing registration response JSON: %w, body: %s", err, string(bodyBytes))
 	}
 
-	// Store the new account details in the account store
+	// Store the new account details in the account store for the requested domain
 	store.SetAccount(domain, newAccount)
 
+	// If this is a wildcard domain, also store for the base domain
+	// (baseDomain is already defined at the top of the function)
+	if domain != baseDomain {
+		store.SetAccount(baseDomain, newAccount)
+		DefaultLogger.Infof("Also associating account with base domain %s", baseDomain)
+	}
+
+	// If this is a base domain, also store for the wildcard version
+	// (wildcardDomain is already defined at the top of the function)
+	if domain != wildcardDomain {
+		store.SetAccount(wildcardDomain, newAccount)
+		DefaultLogger.Infof("Also associating account with wildcard domain %s", wildcardDomain)
+	}
+
 	// Save the updated account store file immediately
-	if err := store.SaveAccounts(); err != nil {
+	saveErr := store.SaveAccounts()
+	if saveErr != nil {
 		// Log the error but potentially continue? Or should this be fatal?
 		// For now, log and return the error, as saving is critical.
-		DefaultLogger.Errorf("Error saving account store after registering %s: %v", domain, err)
-		return nil, fmt.Errorf("saving account store after registration: %w", err)
+		DefaultLogger.Errorf("Error saving account store after registering %s: %v", domain, saveErr)
+		return nil, fmt.Errorf("saving account store after registration: %w", saveErr)
 	}
 
 	DefaultLogger.Infof("Successfully registered %s. Account details saved to %s.", domain, store.filePath)
@@ -74,8 +111,6 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 // Exported function
 func PrintRequiredCname(domain string, fulldomain string) {
 	baseDomain := GetBaseDomain(domain)
-	fmt.Println(string(make([]byte, 60))) // Cheap way to print a line
-	fmt.Printf("Required DNS CNAME Record:\n")
-	fmt.Printf("  _acme-challenge.%s. IN CNAME %s.\n", baseDomain, fulldomain)
-	fmt.Println(string(make([]byte, 60)))
+	fmt.Println("\nRequired DNS CNAME Record:")
+	fmt.Printf("_acme-challenge.%s. IN CNAME %s.\n", baseDomain, fulldomain)
 }

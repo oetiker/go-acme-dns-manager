@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
 // No need to redefine parseCertArg - using the one from main.go

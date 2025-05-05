@@ -8,25 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- Added `-log-level` flag to control verbosity (debug|info|warn|error)
+- Added `-log-format` flag to control output format (go|emoji|color|ascii)
+- Added automatic terminal detection to use emoji format when connected to a TTY
+- Added colorful logger with emoji support for human-friendly output
 
 ### Changed
+- Improved DNS CNAME output format to be more copy-paste friendly
+- Modified wildcard domain handling to share ACME DNS accounts between wildcard and base domains
 
 ### Fixed
 
+- Fixed wildcard domain handling for DNS challenges to use the base domain correctly
+- Fixed various log messages to use the proper logging system instead of direct prints
 
 ## [0.4.3] - 2025-04-30
-
-### New
-
-### Changed
 
 ### Fixed
 
 - Release only when tests have been successful!
 
 ## [0.4.1] - 2025-04-30
-
-### New
 
 ### Changed
 - Refactored command-line argument parsing for better code organization and testability

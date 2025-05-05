@@ -24,6 +24,9 @@ func (r *DefaultDNSResolver) LookupCNAME(ctx context.Context, host string) (stri
 	return r.Resolver.LookupCNAME(ctx, host)
 }
 
+// ACME challenge prefix for DNS validation
+const acmeChallengePrefix = "_acme-challenge"
+
 // GetBaseDomain extracts the base domain from a wildcard or regular domain
 func GetBaseDomain(domain string) string {
 	// Remove wildcard prefix if present
@@ -33,12 +36,18 @@ func GetBaseDomain(domain string) string {
 	return domain
 }
 
+// GetChallengeSubdomain creates the challenge subdomain for a given domain
+// This is exported for testing purposes
+func GetChallengeSubdomain(domain string) string {
+	return fmt.Sprintf("%s.%s", acmeChallengePrefix, domain)
+}
+
 // VerifyCnameRecord checks if the _acme-challenge CNAME record for the domain
 // points to the expected target (the fulldomain from acme-dns).
 // Exported function
 func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool, error) {
 	baseDomain := GetBaseDomain(domain)
-	challengeDomain := fmt.Sprintf("_acme-challenge.%s", baseDomain)
+	challengeDomain := GetChallengeSubdomain(baseDomain)
 	expectedTarget = strings.TrimSuffix(expectedTarget, ".") // Ensure no trailing dot for comparison
 
 	DefaultLogger.Infof("Verifying CNAME record for %s -> %s", challengeDomain, expectedTarget)

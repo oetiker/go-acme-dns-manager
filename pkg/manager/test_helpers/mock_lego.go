@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
 // Constants for permissions

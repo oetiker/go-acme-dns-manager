@@ -4,8 +4,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/oetiker/go-acme-dns-manager/internal/manager"
-	"github.com/oetiker/go-acme-dns-manager/internal/manager/test_mocks"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager/test_mocks"
 )
 
 // TestDNSVerification tests the DNS verification functionality with a mock resolver
@@ -16,6 +16,8 @@ func TestDNSVerification(t *testing.T) {
 	// Add test records
 	mockResolver.AddCNAMERecord("_acme-challenge.example.com", "valid.acme-dns.example.org")
 	mockResolver.AddCNAMERecord("_acme-challenge.invalid.com", "wrong.acme-dns.example.org")
+	// Add wildcard domain record - note that the challenge domain should be _acme-challenge.example.com (no wildcard)
+	mockResolver.AddCNAMERecord("_acme-challenge.example.com", "valid.acme-dns.example.org")
 	mockResolver.AddErrorRecord("_acme-challenge.error.com", &net.DNSError{
 		Err:  "server failure",
 		Name: "_acme-challenge.error.com",
