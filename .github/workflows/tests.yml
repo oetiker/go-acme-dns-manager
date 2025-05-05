@@ -30,6 +30,6 @@ jobs:
       run: RUN_INTEGRATION_TESTS=1 go test ./... -v
 
     - name: Run linter
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v8
       with:
         version: latest
