@@ -133,12 +133,6 @@ func (l *Logger) Error(msg string, args ...interface{}) {
 	}
 }
 
-// Important logs an important message that is always shown regardless of log level
-func (l *Logger) Important(msg string, args ...interface{}) {
-	// Always show important messages
-	l.slogger.Error(msg, convertArgsToAttrs(args)...)
-}
-
 // Debugf logs a formatted debug message
 func (l *Logger) Debugf(format string, args ...interface{}) {
 	if l.level <= LogLevelDebug {

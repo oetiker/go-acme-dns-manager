@@ -1,0 +1,19 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+# to run gitleaks expicitly ... add Fingerprints to .gitleaksignore
+# docker run -v $(pwd):/path ghcr.io/gitleaks/gitleaks:latest detect --source="/path"   --verbose
+-   repo: local
+    hooks:
+    - id: gitleaks-docker
+      name: Detect hardcoded secrets
+      description: Detect hardcoded secrets using Gitleaks
+      entry: podman run -v .:/path ghcr.io/gitleaks/gitleaks:latest protect --source=/path --staged --verbose --redact
+      language: system

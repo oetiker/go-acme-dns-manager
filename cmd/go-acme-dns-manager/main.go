@@ -5,7 +5,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath" // For comparing domain lists
 	"runtime"
@@ -199,9 +198,10 @@ func main() {
 	manager.SetupDefaultLogger(loggerLevel, loggerFormat) // Set the default logger for the manager package
 	logger := manager.GetDefaultLogger()                  // Use the configured default logger
 
-	// Define logMessage and logImportant as wrappers for the new logger
-	logMessage := logger.Infof
-	logImportant := logger.Importantf
+	// Define logInfoMessage and logImportant as wrappers for the new logger
+	logInfoMessage := logger.Infof
+	logWarnMessage := logger.Warnf
+	logDebugMessage := logger.Debugf
 
 	// Handle print config template flag first
 	if *printConfigTemplate {
@@ -255,7 +255,8 @@ func main() {
 	isAutoMode := *autoMode // Use renamed flag variable
 
 	if isManualMode && isAutoMode {
-		logger.Error("Error: Cannot use -auto flag and specify certificate arguments simultaneously.")
+		fmt.Fprintf(os.Stderr, "Error: Cannot use -auto flag and specify certificate arguments simultaneously.\n\n")
+		flag.Usage()
 		os.Exit(1)
 	}
 	if !isManualMode && !isAutoMode {
@@ -293,12 +294,12 @@ func main() {
 			// For simple domain format (domain used as both cert name and domain),
 			// add an informational message
 			if arg == certName && len(domains) == 1 && domains[0] == arg && !strings.Contains(arg, "@") {
-				logMessage("Interpreting argument '%s' as shorthand for '%s@%s'", arg, certName, certName)
+				logDebugMessage("Interpreting argument '%s' as shorthand for '%s@%s'", arg, certName, certName)
 			}
 
 			// Log parameter information if found
 			if keyType != "" {
-				logMessage("Found key_type parameter: %s", keyType)
+				logDebugMessage("Found key_type parameter: %s", keyType)
 			}
 
 			if _, exists := requestedNames[certName]; exists {
@@ -309,24 +310,24 @@ func main() {
 			requestedNames[certName] = struct{}{}
 		}
 	} else { // Auto Mode
-		logMessage("Mode: Automatic") // Update log message
+		logInfoMessage("Mode: Automatic") // Update log message
 		if cfg.AutoDomains == nil || len(cfg.AutoDomains.Certs) == 0 {
-			logMessage("No certificates defined in 'auto_domains.certs' section of the config file. Nothing to do.")
+			logInfoMessage("No certificates defined in 'auto_domains.certs' section of the config file. Nothing to do.")
 			os.Exit(0)
 		}
-		logMessage("Processing %d certificate definition(s) from config file...", len(cfg.AutoDomains.Certs))
+		logDebugMessage("Processing %d certificate definition(s) from config file...", len(cfg.AutoDomains.Certs))
 		for name, certDef := range cfg.AutoDomains.Certs {
 			// Basic validation already done in LoadConfig
 			requests = append(requests, certRequest{Name: name, Domains: certDef.Domains, KeyType: certDef.KeyType})
 			if certDef.KeyType != "" {
-				logMessage("Certificate %s will use key type: %s", name, certDef.KeyType)
+				logDebugMessage("Certificate %s will use key type: %s", name, certDef.KeyType)
 			}
 			// No need to check for duplicate names here as map keys are unique
 		}
 	}
 
 	// --- Pre-Check for Conflicts and Determine Actions ---
-	logMessage("Performing pre-checks for requested certificates...")
+	logDebugMessage("Performing pre-checks for requested certificates...")
 	type requestTask struct {
 		Request certRequest
 		Action  string // "init", "renew", "skip"
@@ -335,7 +336,7 @@ func main() {
 	renewalThreshold := cfg.GetRenewalThreshold() // Get duration from config/default
 
 	for _, req := range requests {
-		logger.Debugf("Checking certificate: %s (%v)", req.Name, req.Domains)
+		logDebugMessage("Checking certificate: %s (%v)", req.Name, req.Domains)
 		action := "init" // Default action is init
 		// skip := false // Removed unused variable
 
@@ -363,9 +364,9 @@ func main() {
 				os.Exit(1)
 			} else if len(req.Domains) == 0 {
 				// Should not happen due to earlier parsing checks, but safety first
-				log.Fatalf("Internal Error: Empty domain list for certificate request '%s'", req.Name)
+				logger.Errorf("Internal Error: Empty domain list for certificate request '%s'", req.Name)
 			} else {
-				log.Printf("  Primary domain '%s' matches existing certificate.", req.Domains[0])
+				logger.Debugf("Primary domain '%s' matches existing certificate.", req.Domains[0])
 
 				// Attempt to load and parse the actual certificate to get the SAN list
 				certPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".crt")
@@ -402,21 +403,21 @@ func main() {
 							}
 
 							if len(missingDomains) > 0 || len(extraDomains) > 0 {
-								log.Printf("  Warning: Domain list differences detected for certificate '%s':", req.Name)
+								logger.Warnf("Domain list differences detected for certificate '%s':", req.Name)
 								if len(missingDomains) > 0 {
-									log.Printf("    - New domains that will be added: %v", missingDomains)
+									logger.Infof("    - New domains that will be added: %v", missingDomains)
 									// Force renewal when domains are missing from the certificate
-									log.Printf("    - Will force renewal to include all requested domains.")
+									logger.Infof("    - Will force renewal to include all requested domains.")
 									// Make sure we don't skip this certificate even if not expiring soon
 									if action == "skip" && isAutoMode {
 										action = "renew"
-										log.Printf("    - Changed action from 'skip' to 'renew' due to missing domains.")
+										logger.Infof("    - Changed action from 'skip' to 'renew' due to missing domains.")
 									}
 								}
 								if len(extraDomains) > 0 {
-									log.Printf("    - Domains in existing cert that will be removed: %v", extraDomains)
+									logger.Infof("    - Domains in existing cert that will be removed: %v", extraDomains)
 								}
-								log.Printf("  If this is not intended, please use a different certificate name.")
+								logger.Infof("  If this is not intended, please use a different certificate name.")
 							} else {
 								logger.Debugf("All domains match between requested domains and existing certificate.")
 							}
@@ -436,23 +437,23 @@ func main() {
 			if isAutoMode { // Use renamed flag variable
 				certBytes, err := os.ReadFile(certPath)
 				if err != nil {
-					log.Printf("  Warning: Could not read existing certificate file %s for expiry check: %v. Proceeding with renewal.", certPath, err)
+					logger.Warnf("Could not read existing certificate file %s for expiry check: %v. Proceeding with renewal.", certPath, err)
 				} else {
 					block, _ := pem.Decode(certBytes)
 					if block == nil {
-						log.Printf("  Warning: Failed to decode PEM block from %s. Proceeding with renewal.", certPath)
+						logger.Warnf("Failed to decode PEM block from %s. Proceeding with renewal.", certPath)
 					} else {
 						cert, err := x509.ParseCertificate(block.Bytes)
 						if err != nil {
-							log.Printf("  Warning: Failed to parse certificate from %s: %v. Proceeding with renewal.", certPath, err)
+							logger.Warnf("Failed to parse certificate from %s: %v. Proceeding with renewal.", certPath, err)
 						} else {
 							timeLeft := time.Until(cert.NotAfter)
-							log.Printf("  Certificate expires on %s (%v remaining). Renewal threshold is %v.", cert.NotAfter.Format(time.RFC1123), timeLeft.Round(time.Hour), renewalThreshold)
+							logger.Debugf("Certificate expires on %s (%v remaining). Renewal threshold is %v.", cert.NotAfter.Format(time.RFC1123), timeLeft.Round(time.Hour), renewalThreshold)
 							if timeLeft > renewalThreshold {
-								log.Printf("  Skipping renewal: Certificate is not within the renewal threshold.")
+								logger.Debugf("Skipping renewal: Certificate is not within the renewal threshold.")
 								action = "skip" // Mark as skip
 							} else {
-								log.Printf("  Certificate is within renewal threshold. Proceeding with renewal.")
+								logger.Warnf("Certificate is within renewal threshold. Proceeding with renewal.")
 							}
 						}
 					}
@@ -477,7 +478,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	logMessage("Pre-checks complete. Processing %d certificate task(s)...", len(tasks))
+	logDebugMessage("Pre-checks complete. Processing %d certificate task(s)...", len(tasks))
 	// Define a struct to track required CNAME changes
 	type requiredCNAME struct {
 		Domain      string
@@ -495,11 +496,11 @@ func main() {
 		domains := task.Request.Domains
 		action := task.Action
 
-		logMessage("--- Processing Task: Action=%s, CertName=%s, Domains=%v ---", action, certName, domains)
+		logInfoMessage("Processing Task: Action=%s, CertName=%s, Domains=%v ---", action, certName, domains)
 
 		// 1. Verify/Register ACME DNS for all domains in this group
 		needsManualUpdate := false
-		logMessage("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
+		logInfoMessage("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
 		// For wildcard domains, we need to keep track of which base domains we've already validated
 		checkedBaseDomains := make(map[string]bool)
 
@@ -508,17 +509,17 @@ func main() {
 			baseDomain := manager.GetBaseDomain(domain)
 			if strings.HasPrefix(domain, "*.") && checkedBaseDomains[baseDomain] {
 				// We've already validated the base domain CNAME, skip redundant checks
-				logMessage("  Using already verified CNAME for %s based on %s", domain, baseDomain)
+				logInfoMessage("Using already verified CNAME for %s based on %s", domain, baseDomain)
 				continue
 			}
 
 			account, exists := store.GetAccount(domain)
 
 			if !exists {
-				logMessage("  Registering ACME DNS for %s...", domain)
+				logInfoMessage("Registering ACME DNS for %s...", domain)
 				newAccount, err := manager.RegisterNewAccount(cfg, store, domain)
 				if err != nil {
-					logImportant("  ERROR registering new acme-dns account for %s: %v", domain, err)
+					logger.Errorf("ERROR registering new acme-dns account for %s: %v", domain, err)
 					anyFailure = true
 					break // Stop processing this cert group if registration fails
 				}
@@ -537,7 +538,7 @@ func main() {
 			}
 
 			// Account exists, verify CNAME
-			logMessage("Verifying CNAME for %s...", domain)
+			logInfoMessage("Verifying CNAME for %s...", domain)
 			cnameValid, err := manager.VerifyCnameRecord(cfg, domain, account.FullDomain)
 
 			// If this is a base domain and the CNAME is valid, mark it as checked
@@ -545,7 +546,7 @@ func main() {
 				checkedBaseDomains[domain] = true
 			}
 			if err != nil {
-				logMessage("  Warning: Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
+				logger.Errorf("Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
 
 				// Instead of printing immediately, collect for final report
 				baseDomain := manager.GetBaseDomain(domain)
@@ -558,7 +559,7 @@ func main() {
 
 				needsManualUpdate = true
 			} else if !cnameValid {
-				logMessage("  CNAME record for %s is missing or invalid.", domain)
+				logger.Errorf("CNAME record for %s is missing or invalid.", domain)
 
 				// Instead of printing immediately, collect for final report
 				baseDomain := manager.GetBaseDomain(domain)
@@ -571,36 +572,36 @@ func main() {
 
 				needsManualUpdate = true
 			} else {
-				logMessage("  CNAME record for %s is valid.", domain)
+				logInfoMessage("CNAME record for %s is valid.", domain)
 			}
 		} // End domain loop for ACME DNS
 
 		if anyFailure {
-			logMessage("Skipping Lego operation for '%s' due to previous errors.", certName)
+			logWarnMessage("Skipping Lego operation for '%s' due to previous errors.", certName)
 			continue // Move to the next task
 		}
 
 		if needsManualUpdate {
-			logMessage("Manual DNS CNAME updates required for certificate '%s'.", certName)
+			logWarnMessage("Manual DNS CNAME updates required for certificate '%s'.", certName)
 			anyFailure = true // Treat as failure for overall exit code
 			continue          // Move to the next task
 		}
 
-		logMessage("All domains for '%s' have valid ACME DNS configurations.", certName)
+		logInfoMessage("All domains for '%s' have valid ACME DNS configurations.", certName)
 
 		// 2. Run Lego action
-		logMessage("Proceeding with Lego action '%s' for certificate '%s'...", action, certName)
+		logInfoMessage("Proceeding with Lego action '%s' for certificate '%s'...", action, certName)
 		keyType := task.Request.KeyType
 		if keyType != "" {
-			logMessage("Using specified key type for certificate: %s", keyType)
+			logInfoMessage("Using specified key type for certificate: %s", keyType)
 		}
 		err = manager.RunLego(cfg, store, action, certName, domains, keyType) // Pass certName and keyType
 		if err != nil {
-			logImportant("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
+			logger.Errorf("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
 			anyFailure = true
 			// Continue to next task even if one fails? Or stop? Let's continue for now.
 		} else {
-			logImportant("Lego operation successful for certificate '%s'.", certName)
+			logger.Infof("Lego operation successful for certificate '%s'.", certName)
 		}
 
 	} // End task processing loop
@@ -654,9 +655,8 @@ func main() {
 	}
 
 	if anyFailure {
-		logImportant("One or more operations failed or require manual intervention.")
+		logger.Errorf("One or more operations failed or require manual intervention.")
 		os.Exit(1)
 	}
-
-	logImportant("\nOperation completed successfully.")
+	logInfoMessage("\nOperation completed successfully.")
 }

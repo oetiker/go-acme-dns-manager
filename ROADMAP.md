@@ -33,9 +33,10 @@ go-acme-dns-manager/
 ├── pkg/manager/              # Core business logic modules
 │   ├── acmedns.go            # ACME DNS client implementation
 │   ├── colorful_logger.go    # Colorful logging implementation
-│   ├── config.go             # Configuration handling
+│   ├── config.go             # Configuration handling (including DNS resolver settings)
 │   ├── constants.go          # Shared constants
 │   ├── dnsverify.go          # DNS verification logic
+│   ├── legowrapper.go        # Interface to Lego ACME client library
 │   ├── logger.go             # Logger interface and implementation
 │   └── ...
 ├── pkg/manager/test_mocks/   # Mock implementations for testing
@@ -57,8 +58,17 @@ Start by understanding the application's core components:
 - **Configuration Management**: `pkg/manager/config.go`
 - **Command-Line Interface**: `cmd/go-acme-dns-manager/main.go`
 - **ACME DNS Integration**: `pkg/manager/acmedns.go`
+- **Lego ACME Client**: `pkg/manager/legowrapper.go`
 - **DNS Verification**: `pkg/manager/dnsverify.go`
 - **Logging System**: `pkg/manager/logger.go` and `pkg/manager/colorful_logger.go`
+
+#### Custom DNS Resolver Configuration
+
+The application supports configuring a custom DNS resolver through:
+1. **Config File**: Set `dns_resolver` in config.yaml
+2. **Implementation**:
+   - `dnsverify.go`: Uses the custom resolver for CNAME verification
+   - `legowrapper.go`: Passes the resolver configuration to Lego via environment variables
 
 ### 2. Making Changes
 

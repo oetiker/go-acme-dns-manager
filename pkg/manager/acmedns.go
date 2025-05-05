@@ -27,7 +27,7 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 
 		// Since we're sharing the account, we also need to verify the CNAME is valid
 		// to prevent the main loop from requesting the same CNAME again
-		cnameValid, _ := VerifyCnameRecord(nil, domain, account.FullDomain)
+		cnameValid, _ := VerifyCnameRecord(cfg, domain, account.FullDomain)
 		if cnameValid {
 			DefaultLogger.Infof("Verified that the CNAME for %s is already properly set up", domain)
 		}
@@ -44,7 +44,7 @@ func RegisterNewAccount(cfg *Config, store *accountStore, domain string) (*AcmeD
 
 		// Since we're sharing the account, we also need to verify the CNAME is valid
 		// to prevent the main loop from requesting the same CNAME again
-		cnameValid, _ := VerifyCnameRecord(nil, domain, account.FullDomain)
+		cnameValid, _ := VerifyCnameRecord(cfg, domain, account.FullDomain)
 		if cnameValid {
 			DefaultLogger.Infof("Verified that the CNAME for %s is already properly set up", domain)
 		}

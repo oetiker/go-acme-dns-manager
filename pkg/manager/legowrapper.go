@@ -11,9 +11,12 @@ import (
 	"net/url"
 	"os" // Added for Setenv
 	"path/filepath"
+	"strings"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
+	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/providers/dns/acmedns"
 	"github.com/go-acme/lego/v4/registration"
@@ -177,9 +180,9 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 		return fmt.Errorf("RunLego called with empty domains list")
 	}
 
-	user, err := createOrLoadUser(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create/load ACME user: %w", err)
+	user, userErr := createOrLoadUser(cfg)
+	if userErr != nil {
+		return fmt.Errorf("failed to create/load ACME user: %w", userErr)
 	}
 
 	// Setup Lego config
@@ -222,33 +225,65 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	legoConfig.HTTPClient.Timeout = cfg.HTTPTimeout
 
 	// Create Lego client
-	client, err := lego.NewClient(legoConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Lego client: %w", err)
+	client, clientErr := lego.NewClient(legoConfig)
+	if clientErr != nil {
+		return fmt.Errorf("failed to create Lego client: %w", clientErr)
 	}
+
+	// This ensures only DNS-01 is used and prevents Lego from attempting other challenge types
+	client.Challenge.Remove(challenge.HTTP01)
+	client.Challenge.Remove(challenge.TLSALPN01)
 
 	// Setup acme-dns provider
 	// The provider reads ACME_DNS_API_BASE and ACME_DNS_STORAGE_PATH from env vars.
-	// We set them explicitly here from our config to avoid implicit dependencies.
+	DefaultLogger.Info("Configuring ACME DNS provider...")
+
+	// Set the environment variables required by the acme-dns provider
 	DefaultLogger.Infof("Setting ACME_DNS_API_BASE=%s", cfg.AcmeDnsServer)
-	if err := os.Setenv("ACME_DNS_API_BASE", cfg.AcmeDnsServer); err != nil {
-		return fmt.Errorf("failed to set ACME_DNS_API_BASE env var: %w", err)
-	}
-	// The acmedns provider uses the storage path to *read* the credentials from the JSON file.
-	DefaultLogger.Infof("Setting ACME_DNS_STORAGE_PATH=%s", store.filePath) // Use store.filePath
-	if err := os.Setenv("ACME_DNS_STORAGE_PATH", store.filePath); err != nil {
-		return fmt.Errorf("failed to set ACME_DNS_STORAGE_PATH env var: %w", err)
+	if setErr := os.Setenv("ACME_DNS_API_BASE", cfg.AcmeDnsServer); setErr != nil {
+		return fmt.Errorf("failed to set ACME_DNS_API_BASE env var: %w", setErr)
 	}
 
-	// Create the DNS provider using the environment variables we've set
-	provider, err := acmedns.NewDNSProvider()
-	if err != nil {
-		return fmt.Errorf("failed to create acme-dns provider: %w", err)
+	// The acmedns provider uses the storage path to read the credentials from the JSON file
+	DefaultLogger.Infof("Setting ACME_DNS_STORAGE_PATH=%s", store.filePath)
+	if setErr := os.Setenv("ACME_DNS_STORAGE_PATH", store.filePath); setErr != nil {
+		return fmt.Errorf("failed to set ACME_DNS_STORAGE_PATH env var: %w", setErr)
 	}
 
-	err = client.Challenge.SetDNS01Provider(provider)
-	if err != nil {
-		return fmt.Errorf("failed to set DNS01 provider: %w", err)
+	// Create the provider using our configured environment variables
+	var provider *acmedns.DNSProvider
+	var providerErr error
+	provider, providerErr = acmedns.NewDNSProvider()
+	if providerErr != nil {
+		return fmt.Errorf("failed to create acme-dns provider: %w", providerErr)
+	}
+
+	// Set up the DNS-01 provider with proper resolver configuration
+	var dnsErr error
+	if cfg.DnsResolver != "" {
+		// Format nameserver address correctly (add :53 if port is missing)
+		nsAddr := cfg.DnsResolver
+		if !strings.Contains(nsAddr, ":") {
+			nsAddr += ":53"
+		}
+
+		// Create a slice of nameservers with the custom resolver
+		nameservers := []string{nsAddr}
+		DefaultLogger.Infof("Configuring DNS-01 challenge with custom nameservers: %v", nameservers)
+
+		// Set DNS01 provider with custom recursive nameservers
+		dnsErr = client.Challenge.SetDNS01Provider(
+			provider,
+			dns01.AddRecursiveNameservers(nameservers),
+			dns01.DisableCompletePropagationRequirement(),
+		)
+	} else {
+		// Default case - use the provider as is
+		dnsErr = client.Challenge.SetDNS01Provider(provider)
+	}
+
+	if dnsErr != nil {
+		return fmt.Errorf("failed to set DNS01 provider: %w", dnsErr)
 	}
 
 	// Register the user if needed
