@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -132,5 +133,132 @@ func TestGetRenewalThreshold(t *testing.T) {
 	if threshold.Hours() != float64(customDays*24) {
 		t.Errorf("Custom threshold expected %d days, got %.1f days",
 			customDays, threshold.Hours()/24)
+	}
+}
+
+// Test IsValidDNSName function
+func TestIsValidDNSName(t *testing.T) {
+	tests := []struct {
+		name    string
+		domain  string
+		isValid bool
+	}{
+		// Valid domain names
+		{
+			name:    "Simple domain",
+			domain:  "example.com",
+			isValid: true,
+		},
+		{
+			name:    "Subdomain",
+			domain:  "sub.example.com",
+			isValid: true,
+		},
+		{
+			name:    "Wildcard domain",
+			domain:  "*.example.com",
+			isValid: true,
+		},
+		{
+			name:    "Domain with numbers",
+			domain:  "example123.com",
+			isValid: true,
+		},
+		{
+			name:    "Domain with hyphens",
+			domain:  "my-example-domain.com",
+			isValid: true,
+		},
+		{
+			name:    "Wildcard subdomain",
+			domain:  "*.sub.example.com",
+			isValid: true,
+		},
+
+		// Invalid domain names
+		{
+			name:    "Empty domain",
+			domain:  "",
+			isValid: false,
+		},
+		{
+			name:    "Single label domain",
+			domain:  "localhost",
+			isValid: false,
+		},
+		{
+			name:    "Domain with underscore",
+			domain:  "example_domain.com",
+			isValid: false,
+		},
+		{
+			name:    "Double wildcard",
+			domain:  "*.*.example.com",
+			isValid: false,
+		},
+		{
+			name:    "Wildcard not at start",
+			domain:  "sub.*.example.com",
+			isValid: false,
+		},
+		{
+			name:    "Only wildcard",
+			domain:  "*",
+			isValid: false,
+		},
+		{
+			name:    "Starts with hyphen",
+			domain:  "-example.com",
+			isValid: false,
+		},
+		{
+			name:    "Ends with hyphen",
+			domain:  "example-.com",
+			isValid: false,
+		},
+		{
+			name:    "Domain starts with dot",
+			domain:  ".example.com",
+			isValid: false,
+		},
+		{
+			name:    "Domain ends with dot",
+			domain:  "example.com.",
+			isValid: false,
+		},
+		{
+			name:    "Domain with space",
+			domain:  "example domain.com",
+			isValid: false,
+		},
+		{
+			name:    "Too long label (>63 chars)",
+			domain:  strings.Repeat("a", 64) + ".com",
+			isValid: false,
+		},
+		{
+			name:    "Domain exactly at length limit",
+			domain:  strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 63) + ".com", // 248 + 3 = 251 chars
+			isValid: true,
+		},
+		{
+			name:    "Domain just over length limit",
+			domain:  strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 70) + ".com", // 255+ chars
+			isValid: false,
+		},
+		{
+			name:    "Special characters",
+			domain:  "example!.com",
+			isValid: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := IsValidDNSName(tc.domain)
+			if result != tc.isValid {
+				t.Errorf("IsValidDNSName(%q) = %v, want %v", tc.domain, result, tc.isValid)
+			}
+		})
 	}
 }

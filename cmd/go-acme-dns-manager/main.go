@@ -64,6 +64,10 @@ func parseCertArg(arg string) (string, []string, string, error) {
 		if domainPart == "" {
 			return "", nil, "", fmt.Errorf("empty domain name")
 		}
+		// Advanced RFC validation for DNS names
+		if !manager.IsValidDNSName(domainPart) {
+			return "", nil, "", fmt.Errorf("invalid domain name '%s': does not conform to DNS name standards", domainPart)
+		}
 		return domainPart, []string{domainPart}, keyType, nil
 	}
 
@@ -79,6 +83,10 @@ func parseCertArg(arg string) (string, []string, string, error) {
 	for _, d := range rawDomains {
 		trimmed := strings.TrimSpace(d)
 		if trimmed != "" {
+			// Validate the domain according to DNS standards
+			if !manager.IsValidDNSName(trimmed) {
+				return "", nil, "", fmt.Errorf("invalid domain name '%s': does not conform to DNS name standards", trimmed)
+			}
 			domains = append(domains, trimmed)
 		}
 	}

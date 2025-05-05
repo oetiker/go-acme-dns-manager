@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- Added proper domain name validation according to RFC standards
 
 ### Changed
+- Domain name validation is now stricter and rejects malformed domains
 
 ### Fixed
+- Fixed issue where invalid domain names would be accepted
+- Domain names are now verified to follow DNS RFC 1035 standards
+- Wildcard domains are now properly validated (only allowed in format `*.domain.tld`)
 
 
 ## [0.5.0] - 2025-05-05

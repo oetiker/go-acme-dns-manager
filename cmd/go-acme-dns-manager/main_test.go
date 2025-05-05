@@ -131,6 +131,118 @@ func TestParseCertArg(t *testing.T) {
 	}
 }
 
+// Test specifically for domain name validation in parseCertArg
+func TestParseCertArgDomainValidation(t *testing.T) {
+	testCases := []struct {
+		name          string
+		arg           string
+		wantErr       bool
+		wantErrPrefix string
+	}{
+		// Valid domain cases
+		{
+			name:    "Valid domain",
+			arg:     "example.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid subdomain",
+			arg:     "sub.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid wildcard domain",
+			arg:     "*.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid domain with multiple labels",
+			arg:     "a.b.c.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid domain with cert name",
+			arg:     "mycert@example.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid domain with numbers",
+			arg:     "example123.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid domain with hyphen",
+			arg:     "my-domain.com",
+			wantErr: false,
+		},
+		{
+			name:    "Valid multiple domains",
+			arg:     "mycert@example.com,sub.example.com,*.example.com",
+			wantErr: false,
+		},
+
+		// Invalid domain cases
+		{
+			name:          "Invalid domain with underscore",
+			arg:           "invalid_domain.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Invalid domain starts with hyphen",
+			arg:           "-invalid.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Invalid domain ends with hyphen",
+			arg:           "invalid-.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Invalid domain single label",
+			arg:           "localhost",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Double wildcard",
+			arg:           "*.*.example.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Invalid with multiple domains",
+			arg:           "mycert@example.com,invalid_domain.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+		{
+			name:          "Invalid subdomain with space",
+			arg:           "sub domain.example.com",
+			wantErr:       true,
+			wantErrPrefix: "invalid domain name",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, err := parseCertArg(tc.arg)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				} else if tc.wantErrPrefix != "" && !strings.HasPrefix(err.Error(), tc.wantErrPrefix) {
+					t.Errorf("Error doesn't match expected prefix: got %v, want prefix %s", err, tc.wantErrPrefix)
+				}
+			} else if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 // An integration test that can be run if environment variables are set
 func TestMainIntegration(t *testing.T) {
 	// Skip this test by default - only run in CI with specific flags

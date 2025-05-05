@@ -27,6 +27,76 @@ func (r *DefaultDNSResolver) LookupCNAME(ctx context.Context, host string) (stri
 // ACME challenge prefix for DNS validation
 const acmeChallengePrefix = "_acme-challenge"
 
+// IsValidDNSName validates a domain name according to RFC 1035 standards
+// - Labels (parts between dots) can contain letters, digits, and hyphens
+// - Labels can't start or end with hyphens
+// - Labels can't be longer than 63 characters
+// - The total domain name length can't exceed 253 characters
+// - Special case: we allow wildcard domains only in the format "*.domain.tld"
+func IsValidDNSName(domain string) bool {
+	// Check for wildcard domain - only allow the format "*.domain.tld"
+	if strings.HasPrefix(domain, "*.") {
+		// For wildcards, validate the base domain (after the *.)
+		baseDomain := strings.TrimPrefix(domain, "*.")
+		// Don't allow empty base domain or double wildcards like *.*.domain.com
+		if baseDomain == "" || strings.Contains(baseDomain, "*") {
+			return false
+		}
+		return isValidBaseDNSName(baseDomain)
+	}
+
+	return isValidBaseDNSName(domain)
+}
+
+// isValidBaseDNSName validates a non-wildcard domain name according to RFC 1035
+func isValidBaseDNSName(domain string) bool {
+	// Check if the domain is empty
+	if len(domain) == 0 {
+		return false
+	}
+
+	// Split domain into labels (parts separated by dots)
+	labels := strings.Split(domain, ".")
+
+	// RFC 1035 states the total domain name length including dots
+	// should not exceed 253/255 characters
+	if len(domain) > 253 {
+		return false
+	}
+
+	// Domain must have at least one label and a TLD (at least two parts)
+	if len(labels) < 2 {
+		return false
+	}
+
+	// Check each label
+	for _, label := range labels {
+		// Label length (max 63 characters)
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+
+		// Label must start and end with alphanumeric character
+		if !isAlphaNumeric(rune(label[0])) || !isAlphaNumeric(rune(label[len(label)-1])) {
+			return false
+		}
+
+		// Check each character in the label
+		for _, char := range label {
+			if !isAlphaNumeric(char) && char != '-' {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// isAlphaNumeric checks if a rune is a letter or digit
+func isAlphaNumeric(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
 // GetBaseDomain extracts the base domain from a wildcard or regular domain
 func GetBaseDomain(domain string) string {
 	// Remove wildcard prefix if present
