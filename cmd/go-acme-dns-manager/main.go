@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath" // For comparing domain lists
+	"runtime"
 
 	// "sort" // Removed unused import
 	"strings"
@@ -103,6 +104,11 @@ func parseCertArg(arg string) (string, []string, string, error) {
 	return certName, domains, keyType, nil
 }
 
+// Version information
+var (
+	version = "local-version" // This will be replaced during build with timestamp or actual version
+)
+
 var (
 	configPath          = flag.String("config", "config.yaml", "Path to the configuration file")
 	autoMode            = flag.Bool("auto", false, "Enable automatic mode using 'auto_domains' config section (handles init and renew)")
@@ -111,6 +117,7 @@ var (
 	debugMode           = flag.Bool("debug", false, "Enable debug logging")
 	logLevel            = flag.String("log-level", "", "Set logging level (debug|info|warn|error), overrides -debug flag if specified")
 	logFormat           = flag.String("log-format", "", "Set logging format (go|emoji|color|ascii), overrides -no-color and -no-emoji flags")
+	showVersion         = flag.Bool("version", false, "Show version information and exit")
 )
 
 func main() {
@@ -128,6 +135,18 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("go-acme-dns-manager %s\n", version)
+		fmt.Printf("Build date: %s\n", time.Now().Format("2006-01-02"))
+		fmt.Printf("Go version: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		os.Exit(0)
+	}
+
+	// Display version on startup
+	fmt.Printf("go-acme-dns-manager %s\n", version)
 
 	// --- Logger Setup ---
 	loggerLevel := manager.LogLevelInfo // Default log level

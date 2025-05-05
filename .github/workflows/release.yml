@@ -192,7 +192,7 @@ jobs:
           VERSION_NO_V=${{ steps.generate_version.outputs.version_no_v }}
           
           # Update CHANGES.md - Move Unreleased changes to new version section
-          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n### New\n\n### Changed\n\n### Fixed\n\n\n## [${VERSION_NO_V}] - ${RELEASE_DATE}/" CHANGES.md
+          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n### New\n\n### Changed\n\n### Fixed\n\n\n## ${VERSION_NO_V} - ${RELEASE_DATE}/" CHANGES.md
           
           echo "Updated CHANGES.md for version ${VERSION_NO_V}"
 
@@ -265,8 +265,11 @@ jobs:
             mkdir -p "$TEMP_BUILD_DIR"
             BINARY_NAME="${{ env.PROJECT_NAME }}${EXTENSION}"
             
-            # Build directly into the temp dir
-            GOOS=$GOOS GOARCH=$GOARCH go build -o "$TEMP_BUILD_DIR/$BINARY_NAME" ./cmd/${{ env.PROJECT_NAME }}
+            # Get version without the 'v' prefix for the build
+            VERSION_NO_V=${VERSION#v}
+            
+            # Build directly into the temp dir with version information
+            GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=${VERSION_NO_V}" -o "$TEMP_BUILD_DIR/$BINARY_NAME" ./cmd/${{ env.PROJECT_NAME }}
 
             # Prepare package contents within the temp dir
             PKGDIR_BASE="${{ env.PROJECT_NAME }}-${VERSION}-${GOOS}-${GOARCH}"
@@ -361,7 +364,7 @@ jobs:
             my $content = <STDIN>;
             
             # Use a regex to find the section for our version
-            if ($content =~ /## \[\Q$version\E\][^\n]*\n(.*?)(?=\n## \[|$)/s) {
+            if ($content =~ /## \Q$version\E[^\n]*\n(.*?)(?=\n## [0-9]|$)/s) {
               my $section = $1;
               # Trim leading/trailing whitespace
               $section =~ s/^\s+|\s+$//g;

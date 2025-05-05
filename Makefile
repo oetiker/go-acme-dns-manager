@@ -31,8 +31,9 @@ help:
 build:
 	@echo "Building..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
-	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
+	$(eval VERSION := local-version-$(shell date +%Y-%m-%d-%H:%M:%S))
+	$(GOBUILD) -ldflags "-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
+	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME) (version: $(VERSION))"
 
 # Run unit tests (excluding integration tests)
 test:

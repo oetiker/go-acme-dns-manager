@@ -8,13 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- Added version information display when running the binary
+- Added `-version` flag to explicitly show version information
+- Added timestamped version for local builds (`local-version-YYYY-MM-DD-HH:MM:SS`)
 
 ### Changed
+- Modified Makefile to inject version information during builds
+- Updated release workflow to inject actual version number in release builds
 
 ### Fixed
 
 
-## [0.5.1] - 2025-05-05
+## 0.5.1 - 2025-05-05
 
 ### New
 - Added proper domain name validation according to RFC standards
@@ -28,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wildcard domains are now properly validated (only allowed in format `*.domain.tld`)
 
 
-## [0.5.0] - 2025-05-05
+## 0.5.0 - 2025-05-05
 
 ### New
 - Added `-log-level` flag to control verbosity (debug|info|warn|error)
@@ -48,13 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved code quality by using tagged switch statements where appropriate
 - Corrected ineffectual variable assignments in the main application
 
-## [0.4.3] - 2025-04-30
+## 0.4.3 - 2025-04-30
 
 ### Fixed
 
 - Release only when tests have been successful!
 
-## [0.4.1] - 2025-04-30
+## 0.4.1 - 2025-04-30
 
 ### Changed
 - Refactored command-line argument parsing for better code organization and testability
@@ -66,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed user communication for DNS changes by separating log messages from user-facing output
 - Fixed error handling in certificate argument parsing
 
-## [0.4.0] - 2025-04-29
+## 0.4.0 - 2025-04-29
 
 ### Added
 - Configurable timeouts for ACME challenges (`challenge_timeout`) and ACME server HTTP requests (`http_timeout`) in `config.yaml`.
@@ -82,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced usability by consolidating CNAME setup instructions at the end of execution
 - Refactored logging system to use a consistent interface with support for different log levels
 
-## [0.3.0] - 2025-04-28
+## 0.3.0 - 2025-04-28
 
 ### Changed
 - Removed global `key_type` configuration option
@@ -93,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed key type mapping to use proper Lego cryptographic constants
 - Enhanced command-line interface to better handle certificate arguments with parameters
 
-## [0.2.1] - 2025-04-26
+## 0.2.1 - 2025-04-26
 
 ### Added
 
@@ -104,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Real-world certificate renewal testing infrastructure
 
 
-## [0.2.0] - 2025-04-26
+## 0.2.0 - 2025-04-26
 
 
 ### Added
@@ -118,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved code organization with better constants
 - Enhanced error messages for certificate domain mismatches
 
-## [0.1.0] - 2025-04-26
+## 0.1.0 - 2025-04-26
 
 ### Added
 - Initial project structure based on refactoring from Python script.
