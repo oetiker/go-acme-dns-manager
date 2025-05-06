@@ -222,9 +222,10 @@ The project uses GitHub Actions for CI/CD:
 When preparing a release:
 
 1. Ensure all changes are documented in CHANGES.md
-2. Update version numbers in relevant files
-3. Verify all tests pass
-4. Create a tagged release on GitHub
+2. Make sure the main branch is up to date.
+3. Run the build and release workflow and pick the release level.
+
+The release workflow will update the version and tag the code and create a release on github.
 
 ## Getting Help
 
