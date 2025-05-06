@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- Added integration test to verify certificate renewal logic when required domains don't match actual certificate domains
 
 ### Changed
 
@@ -15,10 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## 0.5.3 - 2025-05-05
-
-### New
-
-### Changed
 
 ### Fixed
 
@@ -96,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.4.0 - 2025-04-29
 
-### Added
+### New
 - Configurable timeouts for ACME challenges (`challenge_timeout`) and ACME server HTTP requests (`http_timeout`) in `config.yaml`.
 - Added `-quiet` mode flag to reduce output in auto mode (useful for cron jobs)
 - Added a summary report of required CNAME changes at the end of execution
@@ -123,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.1 - 2025-04-26
 
-### Added
+### New
 
 - Comprehensive integration test framework
 - Mock servers for ACME DNS and Let's Encrypt testing without external dependencies
@@ -135,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.2.0 - 2025-04-26
 
 
-### Added
+### New
 - Unit tests for critical components
 - Added constants for file permissions and timeouts
 - Comprehensive domain validation for certificate renewals
@@ -148,7 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.1.0 - 2025-04-26
 
-### Added
+### New
 - Initial project structure based on refactoring from Python script.
 - Core functionality for ACME DNS registration and certificate management using Lego library.
 - Configuration via `config.yaml`.

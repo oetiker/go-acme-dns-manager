@@ -191,8 +191,72 @@ jobs:
           RELEASE_DATE=${{ steps.generate_version.outputs.release_date }}
           VERSION_NO_V=${{ steps.generate_version.outputs.version_no_v }}
 
-          # Update CHANGES.md - Move Unreleased changes to new version section
-          sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n### New\n\n### Changed\n\n### Fixed\n\n\n## ${VERSION_NO_V} - ${RELEASE_DATE}/" CHANGES.md
+          # Use Perl to update CHANGES.md
+          perl -i -e '
+            use strict;
+            use warnings;
+
+            # Read the file content
+            my $content = do { local $/; <> };
+
+            # Extract the Unreleased section
+            my ($before, $unreleased_section, $after) =
+              $content =~ /^(.*?)(## \[Unreleased\].*?)(?=^## \d|\Z)(.*)/ms;
+
+            # Initialize variables for sections
+            my $has_new = 0;
+            my $has_changed = 0;
+            my $has_fixed = 0;
+            my $new_content = "";
+            my $changed_content = "";
+            my $fixed_content = "";
+
+            # Extract content for each section if it exists
+            if ($unreleased_section =~ /### New(.*?)(?=^###|\Z)/ms) {
+              my $section = $1;
+              $section =~ s/^\s+|\s+$//g;
+              if ($section) {
+                $has_new = 1;
+                $new_content = $section;
+              }
+            }
+
+            if ($unreleased_section =~ /### Changed(.*?)(?=^###|\Z)/ms) {
+              my $section = $1;
+              $section =~ s/^\s+|\s+$//g;
+              if ($section) {
+                $has_changed = 1;
+                $changed_content = $section;
+              }
+            }
+
+            if ($unreleased_section =~ /### Fixed(.*?)(?=^###|\Z)/ms) {
+              my $section = $1;
+              $section =~ s/^\s+|\s+$//g;
+              if ($section) {
+                $has_fixed = 1;
+                $fixed_content = $section;
+              }
+            }
+
+            # Build new Unreleased section
+            my $new_unreleased = "## [Unreleased]\n\n";
+
+            # Build version section with only non-empty sections
+            my $version_section = "## $ENV{VERSION_NO_V} - $ENV{RELEASE_DATE}\n";
+            if ($has_new) {
+              $version_section .= "### New\n$new_content\n\n";
+            }
+            if ($has_changed) {
+              $version_section .= "### Changed\n$changed_content\n\n";
+            }
+            if ($has_fixed) {
+              $version_section .= "### Fixed\n$fixed_content\n\n";
+            }
+
+            # Put it all together
+            print $before . $new_unreleased . $version_section . $after;
+          ' CHANGES.md
 
           echo "Updated CHANGES.md for version ${VERSION_NO_V}"
 
@@ -390,7 +454,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.create-tag.outputs.version }}
-          name: Release ${{ needs.create-tag.outputs.version }}
+          name: Release ${{ env.VERSION }}
           draft: false
           prerelease: false
           body_path: release_notes_final.md

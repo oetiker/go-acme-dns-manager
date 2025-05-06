@@ -118,6 +118,16 @@ When adding new functionality, please follow these guidelines:
 4. Update the mock servers if new endpoints or behaviors are needed
 5. Consider using test-driven development (TDD) where applicable
 
+#### Key Areas Covered by Tests
+
+The project has test coverage for the following essential features:
+
+1. Certificate renewal based on expiry date
+2. Certificate renewal based on domain list differences (ensuring the certificate contains all requested domains)
+3. Wildcard domain handling and domain name validation
+4. DNS CNAME record verification
+5. Configuration loading and validation
+
 #### Mock Components
 
 The test suite includes mock implementations for external dependencies:
