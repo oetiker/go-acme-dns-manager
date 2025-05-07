@@ -6,101 +6,20 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath" // For comparing domain lists
+	"path/filepath"
 	"runtime"
-
-	// "sort" // Removed unused import
 	"strings"
 	"time"
 
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
-// Define a struct to hold parsed certificate requests
-type certRequest struct {
-	Name    string
-	Domains []string
-	KeyType string
-}
+// We use the CertRequest type from the manager package
+type certRequest = manager.CertRequest
 
-// parseCertArg parses certificate arguments in the format cert-name@domain1,domain2/key_type=ec384
-// This extracts certificate name, domains list, and optional key type parameter
+// parseCertArg is a wrapper for manager.ParseCertArg to maintain backward compatibility
 func parseCertArg(arg string) (string, []string, string, error) {
-	// Check for key_type parameter
-	keyType := ""
-	domainPart := arg
-
-	// Special case: Check for slash in the cert name part, which is an invalid format
-	// Must handle this before processing parameters
-	atIndex := strings.Index(arg, "@")
-	slashIndex := strings.Index(arg, "/")
-	if slashIndex >= 0 && (atIndex == -1 || slashIndex < atIndex) {
-		// There's a slash before the @ sign or there's no @ but there is a slash
-		// This is only allowed if it's a parameter after the domain part
-		return "", nil, "", fmt.Errorf("invalid format: unexpected '/' in certificate name part")
-	}
-
-	// Now process any parameters that appear after the domain part
-	if strings.Contains(arg, "/") {
-		argParts := strings.Split(arg, "/")
-		domainPart = argParts[0]
-
-		// Process any parameters after the slash
-		for i := 1; i < len(argParts); i++ {
-			param := argParts[i]
-			if strings.HasPrefix(param, "key_type=") {
-				keyType = strings.TrimPrefix(param, "key_type=")
-			}
-			// No logging in this function - caller should log if needed
-		}
-	}
-
-	// Simple domain format (no @ symbol) - use as both cert name and domain
-	if !strings.Contains(domainPart, "@") {
-		// Basic validation for the domain
-		if strings.ContainsAny(domainPart, "/\\") {
-			return "", nil, "", fmt.Errorf("invalid domain name '%s': must not contain '/' or '\\'", domainPart)
-		}
-		if domainPart == "" {
-			return "", nil, "", fmt.Errorf("empty domain name")
-		}
-		// Advanced RFC validation for DNS names
-		if !manager.IsValidDNSName(domainPart) {
-			return "", nil, "", fmt.Errorf("invalid domain name '%s': does not conform to DNS name standards", domainPart)
-		}
-		return domainPart, []string{domainPart}, keyType, nil
-	}
-
-	// Process explicit cert-name@domain format
-	parts := strings.SplitN(domainPart, "@", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", nil, "", fmt.Errorf("invalid format: expected 'cert-name@domain1,domain2,...', got '%s'", domainPart)
-	}
-
-	certName := parts[0]
-	domains := []string{}
-	rawDomains := strings.Split(parts[1], ",")
-	for _, d := range rawDomains {
-		trimmed := strings.TrimSpace(d)
-		if trimmed != "" {
-			// Validate the domain according to DNS standards
-			if !manager.IsValidDNSName(trimmed) {
-				return "", nil, "", fmt.Errorf("invalid domain name '%s': does not conform to DNS name standards", trimmed)
-			}
-			domains = append(domains, trimmed)
-		}
-	}
-
-	if len(domains) == 0 {
-		return "", nil, "", fmt.Errorf("no valid domains found after '@' in argument '%s'", domainPart)
-	}
-
-	// Basic validation for cert name
-	if strings.ContainsAny(certName, "/\\") {
-		return "", nil, "", fmt.Errorf("invalid certificate name '%s': must not contain '/' or '\\'", certName)
-	}
-
-	return certName, domains, keyType, nil
+	return manager.ParseCertArg(arg)
 }
 
 // Version information
@@ -338,10 +257,9 @@ func main() {
 	for _, req := range requests {
 		logDebugMessage("Checking certificate: %s (%v)", req.Name, req.Domains)
 		action := "init" // Default action is init
-		// skip := false // Removed unused variable
 
-		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".json") // Use renamed field
-		certPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".crt")  // Use renamed field
+		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".json")
+		certPath := filepath.Join(cfg.CertStoragePath, "certificates", req.Name+".crt")
 
 		if _, err := os.Stat(metaPath); err == nil {
 			// Metadata exists, potential renew
@@ -349,7 +267,7 @@ func main() {
 			logger.Debugf("Existing metadata found (%s). Checking domains and expiry.", metaPath)
 
 			// Load existing metadata to check domains
-			existingCertData, err := manager.LoadCertificateResource(cfg, req.Name) // Assuming LoadCertificateResource exists
+			existingCertData, err := manager.LoadCertificateResource(cfg, req.Name)
 			if err != nil {
 				logger.Errorf("Error loading existing certificate metadata for '%s' from %s: %v", req.Name, metaPath, err)
 				os.Exit(1)
@@ -376,31 +294,8 @@ func main() {
 					if block != nil {
 						cert, err := x509.ParseCertificate(block.Bytes)
 						if err == nil {
-							// Compare requested domains with certificate SAN list
-							// Create maps for easier comparison
-							existingDomainsMap := make(map[string]bool)
-							for _, domain := range cert.DNSNames {
-								existingDomainsMap[domain] = true
-							}
-
-							requestedDomainsMap := make(map[string]bool)
-							for _, domain := range req.Domains {
-								requestedDomainsMap[domain] = true
-							}
-
-							// Check for differences
-							var missingDomains, extraDomains []string
-							for _, domain := range req.Domains {
-								if !existingDomainsMap[domain] {
-									missingDomains = append(missingDomains, domain)
-								}
-							}
-
-							for _, domain := range cert.DNSNames {
-								if !requestedDomainsMap[domain] {
-									extraDomains = append(extraDomains, domain)
-								}
-							}
+							// Use the manager.CompareCertificateDomains function to compare domains
+							missingDomains, extraDomains := manager.CompareCertificateDomains(cert, req.Domains)
 
 							if len(missingDomains) > 0 || len(extraDomains) > 0 {
 								logger.Warnf("Domain list differences detected for certificate '%s':", req.Name)
@@ -431,11 +326,10 @@ func main() {
 				} else {
 					logger.Warnf("Could not read certificate file %s: %v. Skipping SAN comparison.", certPath, err)
 				}
-
 			}
 
 			// If in auto mode, check expiry date
-			if isAutoMode { // Use renamed flag variable
+			if isAutoMode {
 				certBytes, err := os.ReadFile(certPath)
 				if err != nil {
 					logger.Warnf("Could not read existing certificate file %s for expiry check: %v. Proceeding with renewal.", certPath, err)
@@ -448,38 +342,23 @@ func main() {
 						if err != nil {
 							logger.Warnf("Failed to parse certificate from %s: %v. Proceeding with renewal.", certPath, err)
 						} else {
+							// Use the new CertificateNeedsRenewal function to check if renewal is needed
+							needsRenewal, reason, checkErr := manager.CertificateNeedsRenewal(certPath, req.Domains, renewalThreshold)
+
+							// Log expiry information
 							timeLeft := time.Until(cert.NotAfter)
-							logger.Debugf("Certificate expires on %s (%v remaining). Renewal threshold is %v.", cert.NotAfter.Format(time.RFC1123), timeLeft.Round(time.Hour), renewalThreshold)
+							logger.Debugf("Certificate expires on %s (%v remaining). Renewal threshold is %v.",
+								cert.NotAfter.Format(time.RFC1123), timeLeft.Round(time.Hour), renewalThreshold)
 
-							// Check for domain differences that would force renewal
-							domainChanges := false
-							// We need to load the cert again to check its domains
-							cert2, err := x509.ParseCertificate(block.Bytes)
-							if err == nil {
-								// Check if all requested domains exist in the certificate
-								existingDomainsMap := make(map[string]bool)
-								for _, domain := range cert2.DNSNames {
-									existingDomainsMap[domain] = true
-								}
-
-								for _, domain := range req.Domains {
-									if !existingDomainsMap[domain] {
-										// Domain is missing, need to force renewal
-										domainChanges = true
-										break
-									}
-								}
-							}
-
-							// If expiration is OK and no domain changes needed, skip renewal
-							if timeLeft > renewalThreshold && !domainChanges {
+							// Handle errors in the renewal check
+							if checkErr != nil {
+								logger.Warnf("Error checking renewal status: %v. Will proceed with renewal.", checkErr)
+							} else if needsRenewal {
+								logger.Debugf("Certificate needs renewal: %s", reason)
+							} else {
 								logger.Debugf("Skipping renewal: Certificate is not within the renewal threshold and no domain changes needed.")
 								action = "skip" // Mark as skip
 								logger.Infof("Certificate '%s' doesn't need renewal - will be skipped", req.Name)
-							} else if timeLeft <= renewalThreshold {
-								logger.Warnf("Certificate is within renewal threshold. Proceeding with renewal.")
-							} else if domainChanges {
-								logger.Debugf("Certificate will be renewed due to domain changes")
 							}
 						}
 					}
@@ -503,6 +382,7 @@ func main() {
 			logger.Infof("Certificate '%s' doesn't need renewal - skipping processing", req.Name)
 		}
 	} // End pre-check loop
+
 	// Filter out certificates marked for skipping
 	var processingTasks []requestTask
 	logDebugMessage("Filtering tasks marked for skipping:")
@@ -524,15 +404,9 @@ func main() {
 	}
 
 	logDebugMessage("Pre-checks complete. Processing %d certificate task(s)...", len(processingTasks))
-	// Define a struct to track required CNAME changes
-	type requiredCNAME struct {
-		Domain      string
-		CNAMERecord string
-		Target      string
-	}
 
-	// List to collect required CNAME records
-	var requiredCNAMEs []requiredCNAME
+	// Use manager.RequiredCNAME type instead of local struct
+	var requiredCNAMEs []manager.RequiredCNAME
 
 	// --- Process Tasks (ACME DNS Verification & Lego Execution) ---
 	anyFailure := false
@@ -571,14 +445,9 @@ func main() {
 					break                 // Stop processing this cert group if registration fails
 				}
 
-				// Instead of printing immediately, collect for final report
-				baseDomain := manager.GetBaseDomain(domain)
-				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
-				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
-					Domain:      domain,
-					CNAMERecord: cnameRecord,
-					Target:      newAccount.FullDomain,
-				})
+				// Use the CreateRequiredCNAME helper function
+				requiredCNAMEs = append(requiredCNAMEs,
+					manager.CreateRequiredCNAME(domain, newAccount.FullDomain))
 
 				needsManualUpdate = true
 				continue
@@ -592,31 +461,16 @@ func main() {
 			if cnameValid && !strings.HasPrefix(domain, "*.") {
 				checkedBaseDomains[domain] = true
 			}
+
 			if err != nil {
 				logger.Errorf("Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
-
-				// Instead of printing immediately, collect for final report
-				baseDomain := manager.GetBaseDomain(domain)
-				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
-				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
-					Domain:      domain,
-					CNAMERecord: cnameRecord,
-					Target:      account.FullDomain,
-				})
-
+				requiredCNAMEs = append(requiredCNAMEs,
+					manager.CreateRequiredCNAME(domain, account.FullDomain))
 				needsManualUpdate = true
 			} else if !cnameValid {
 				logger.Errorf("CNAME record for %s is missing or invalid.", domain)
-
-				// Instead of printing immediately, collect for final report
-				baseDomain := manager.GetBaseDomain(domain)
-				cnameRecord := fmt.Sprintf("_acme-challenge.%s", baseDomain)
-				requiredCNAMEs = append(requiredCNAMEs, requiredCNAME{
-					Domain:      domain,
-					CNAMERecord: cnameRecord,
-					Target:      account.FullDomain,
-				})
-
+				requiredCNAMEs = append(requiredCNAMEs,
+					manager.CreateRequiredCNAME(domain, account.FullDomain))
 				needsManualUpdate = true
 			} else {
 				logInfoMessage("CNAME record for %s is valid.", domain)
@@ -647,56 +501,18 @@ func main() {
 			logger.Errorf("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
 			taskHasFailure = true // Mark this specific task as failed
 			anyFailure = true     // Also set the global flag for the final exit code
-			// Continue to next task even if one fails? Or stop? Let's continue for now.
 		} else {
 			logger.Infof("Lego operation successful for certificate '%s'.", certName)
 		}
 
 	} // End task processing loop
+
 	// --- Final Status ---
 	if len(requiredCNAMEs) > 0 {
-		// Print DNS changes directly to stdout as these are important user-facing information
+		// Print DNS changes using the refactored function
+		cnameGroups := manager.GroupCNAMEsByTarget(requiredCNAMEs)
 		fmt.Println("\n===== REQUIRED DNS CHANGES =====")
-		fmt.Println("Add the following CNAME records to your DNS:")
-		fmt.Println()
-
-		// Create maps to group by CNAME record AND by target
-		cnameMap := make(map[string]map[string][]string) // Map[CNAMERecord]Map[Target][]Domains
-
-		// First organize all records
-		for _, cname := range requiredCNAMEs {
-			// Initialize the map for this CNAME record if it doesn't exist
-			if _, exists := cnameMap[cname.CNAMERecord]; !exists {
-				cnameMap[cname.CNAMERecord] = make(map[string][]string)
-			}
-
-			// Add this domain to the appropriate target group for this CNAME record
-			cnameMap[cname.CNAMERecord][cname.Target] = append(
-				cnameMap[cname.CNAMERecord][cname.Target],
-				cname.Domain,
-			)
-		}
-
-		// Now print each unique CNAME record with its domains grouped by target
-		for cnameRecord, targetGroups := range cnameMap {
-			for target, domains := range targetGroups {
-				// Create a proper comment showing all domains using this record
-				commentParts := []string{}
-				for _, domain := range domains {
-					if strings.HasPrefix(domain, "*.") {
-						commentParts = append(commentParts, domain+" (wildcard)")
-					} else {
-						commentParts = append(commentParts, domain)
-					}
-				}
-				comment := strings.Join(commentParts, ", ")
-
-				// Print in BIND format with comment
-				fmt.Printf("; %s\n", comment)
-				fmt.Printf("%s. IN CNAME %s.\n\n", cnameRecord, target)
-			}
-		}
-
+		fmt.Print(manager.FormatCNAMERecords(cnameGroups))
 		fmt.Println("Please make these DNS changes and run the command again.")
 		anyFailure = false // Reset failure flag for manual intervention
 		os.Exit(1)         // Exit with error code for manual intervention

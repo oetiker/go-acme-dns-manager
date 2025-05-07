@@ -10,11 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- Refactored codebase to extract business logic from main.go into manager package
+- Moved certificate checking, parsing, and CNAME record management into dedicated modules
+- Improved code organization and separation of concerns
+- Refactored wildcard domain handling to improve CNAME verification logic
+- Enhanced test coverage for wildcard domain handling and extracted modules
 
 ### Fixed
 - Fixed issue where certificate renewal wasn't actually performed when domains don't match, despite the program claiming it would do so. The expiry check was overriding the domain mismatch renewal decision.
+- Fixed redundant CNAME verification for wildcard domains when the base domain has already been verified
 
 ## 0.6.0 - 2025-05-07
+
 ### New
 - Added integration test to verify certificate renewal logic when required domains don't match actual certificate domains
 - Added JSON Schema validation for configuration files to detect misspelled keys and invalid structures
