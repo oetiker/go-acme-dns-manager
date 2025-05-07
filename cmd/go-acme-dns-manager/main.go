@@ -409,9 +409,10 @@ func main() {
 									// Force renewal when domains are missing from the certificate
 									logger.Infof("    - Will force renewal to include all requested domains.")
 									// Make sure we don't skip this certificate even if not expiring soon
-									if action == "skip" && isAutoMode {
+									if action != "renew" {
+										logger.Debugf("    - Previous action was '%s'", action)
 										action = "renew"
-										logger.Infof("    - Changed action from 'skip' to 'renew' due to missing domains.")
+										logger.Infof("    - Changed action to 'renew' due to missing domains.")
 									}
 								}
 								if len(extraDomains) > 0 {
@@ -449,11 +450,36 @@ func main() {
 						} else {
 							timeLeft := time.Until(cert.NotAfter)
 							logger.Debugf("Certificate expires on %s (%v remaining). Renewal threshold is %v.", cert.NotAfter.Format(time.RFC1123), timeLeft.Round(time.Hour), renewalThreshold)
-							if timeLeft > renewalThreshold {
-								logger.Debugf("Skipping renewal: Certificate is not within the renewal threshold.")
+
+							// Check for domain differences that would force renewal
+							domainChanges := false
+							// We need to load the cert again to check its domains
+							cert2, err := x509.ParseCertificate(block.Bytes)
+							if err == nil {
+								// Check if all requested domains exist in the certificate
+								existingDomainsMap := make(map[string]bool)
+								for _, domain := range cert2.DNSNames {
+									existingDomainsMap[domain] = true
+								}
+
+								for _, domain := range req.Domains {
+									if !existingDomainsMap[domain] {
+										// Domain is missing, need to force renewal
+										domainChanges = true
+										break
+									}
+								}
+							}
+
+							// If expiration is OK and no domain changes needed, skip renewal
+							if timeLeft > renewalThreshold && !domainChanges {
+								logger.Debugf("Skipping renewal: Certificate is not within the renewal threshold and no domain changes needed.")
 								action = "skip" // Mark as skip
-							} else {
+								logger.Infof("Certificate '%s' doesn't need renewal - will be skipped", req.Name)
+							} else if timeLeft <= renewalThreshold {
 								logger.Warnf("Certificate is within renewal threshold. Proceeding with renewal.")
+							} else if domainChanges {
+								logger.Debugf("Certificate will be renewed due to domain changes")
 							}
 						}
 					}
@@ -468,17 +494,36 @@ func main() {
 			logger.Debugf("No existing metadata found (%s). Action set to 'init'.", metaPath)
 		}
 
-		if action != "skip" {
-			tasks = append(tasks, requestTask{Request: req, Action: action})
+		// Always add the task for informational purposes
+		task := requestTask{Request: req, Action: action}
+		tasks = append(tasks, task)
+
+		// Log when we're skipping a certificate
+		if action == "skip" {
+			logger.Infof("Certificate '%s' doesn't need renewal - skipping processing", req.Name)
 		}
 	} // End pre-check loop
+	// Filter out certificates marked for skipping
+	var processingTasks []requestTask
+	logDebugMessage("Filtering tasks marked for skipping:")
+	for _, task := range tasks {
+		logDebugMessage("Checking task for certificate '%s', Action='%s'", task.Request.Name, task.Action)
+		if task.Action != "skip" {
+			processingTasks = append(processingTasks, task)
+			logDebugMessage("  - Added to processing list: Certificate='%s', Action='%s'", task.Request.Name, task.Action)
+		} else {
+			logDebugMessage("  - Skipped from processing: Certificate='%s'", task.Request.Name)
+		}
+	}
 
-	if len(tasks) == 0 {
+	logDebugMessage("After filtering: %d of %d tasks will be processed", len(processingTasks), len(tasks))
+
+	if len(processingTasks) == 0 {
 		logger.Info("No certificates require processing.")
 		os.Exit(0)
 	}
 
-	logDebugMessage("Pre-checks complete. Processing %d certificate task(s)...", len(tasks))
+	logDebugMessage("Pre-checks complete. Processing %d certificate task(s)...", len(processingTasks))
 	// Define a struct to track required CNAME changes
 	type requiredCNAME struct {
 		Domain      string
@@ -491,10 +536,11 @@ func main() {
 
 	// --- Process Tasks (ACME DNS Verification & Lego Execution) ---
 	anyFailure := false
-	for _, task := range tasks {
+	for _, task := range processingTasks {
 		certName := task.Request.Name
 		domains := task.Request.Domains
 		action := task.Action
+		taskHasFailure := false // Track failures for this specific task only
 
 		logInfoMessage("Processing Task: Action=%s, CertName=%s, Domains=%v ---", action, certName, domains)
 
@@ -520,8 +566,9 @@ func main() {
 				newAccount, err := manager.RegisterNewAccount(cfg, store, domain)
 				if err != nil {
 					logger.Errorf("ERROR registering new acme-dns account for %s: %v", domain, err)
-					anyFailure = true
-					break // Stop processing this cert group if registration fails
+					taskHasFailure = true // Set the task-specific failure flag
+					anyFailure = true     // Also set the global flag for exit code
+					break                 // Stop processing this cert group if registration fails
 				}
 
 				// Instead of printing immediately, collect for final report
@@ -576,8 +623,8 @@ func main() {
 			}
 		} // End domain loop for ACME DNS
 
-		if anyFailure {
-			logWarnMessage("Skipping Lego operation for '%s' due to previous errors.", certName)
+		if taskHasFailure {
+			logWarnMessage("Skipping Lego operation for '%s' due to errors with this certificate.", certName)
 			continue // Move to the next task
 		}
 
@@ -598,7 +645,8 @@ func main() {
 		err = manager.RunLego(cfg, store, action, certName, domains, keyType) // Pass certName and keyType
 		if err != nil {
 			logger.Errorf("ERROR: Lego operation failed for certificate '%s': %v", certName, err)
-			anyFailure = true
+			taskHasFailure = true // Mark this specific task as failed
+			anyFailure = true     // Also set the global flag for the final exit code
 			// Continue to next task even if one fails? Or stop? Let's continue for now.
 		} else {
 			logger.Infof("Lego operation successful for certificate '%s'.", certName)

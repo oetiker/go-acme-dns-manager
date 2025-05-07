@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Fixed issue where certificate renewal wasn't actually performed when domains don't match, despite the program claiming it would do so. The expiry check was overriding the domain mismatch renewal decision.
 
 ## 0.6.0 - 2025-05-07
 ### New

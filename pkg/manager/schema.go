@@ -47,11 +47,13 @@ const ConfigSchema = `{
 		"auto_domains": {
 			"type": "object",
 			"additionalProperties": false,
+			"required": ["certs"],
 			"properties": {
 				"grace_days": {
 					"type": "integer",
 					"minimum": 1,
-					"description": "Renew certs expiring within this many days"
+					"description": "Renew certs expiring within this many days",
+					"default": 30
 				},
 				"certs": {
 					"type": "object",
@@ -63,7 +65,8 @@ const ConfigSchema = `{
 							"key_type": {
 								"type": "string",
 								"enum": ["rsa2048", "rsa3072", "rsa4096", "ec256", "ec384"],
-								"description": "Override global key_type for this cert"
+								"description": "Override global key_type for this cert",
+								"default": "rsa4096"
 							},
 							"domains": {
 								"type": "array",
