@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+
+### Fixed
+
+## 0.6.1 - 2025-05-07
+### Changed
 - Refactored codebase to extract business logic from main.go into manager package
 - Moved certificate checking, parsing, and CNAME record management into dedicated modules
 - Improved code organization and separation of concerns
