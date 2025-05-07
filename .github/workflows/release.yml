@@ -185,11 +185,11 @@ jobs:
           echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
 
       - name: Update CHANGES.md
+        env:
+          VERSION_NO_V: ${{ steps.generate_version.outputs.version_no_v }}
+          RELEASE_DATE: ${{ steps.generate_version.outputs.release_date }}
         run: |
           set -euo pipefail
-          # Get current date in YYYY-MM-DD format
-          RELEASE_DATE=${{ steps.generate_version.outputs.release_date }}
-          VERSION_NO_V=${{ steps.generate_version.outputs.version_no_v }}
 
           # Use Perl to update CHANGES.md
           perl -i -e '
@@ -240,7 +240,8 @@ jobs:
             }
 
             # Build new Unreleased section
-            my $new_unreleased = "## [Unreleased]\n\n";
+            my $new_unreleased = "## [Unreleased]\n\n".
+            "### New\n\n### Changed\n\n### Fixed\n\n";
 
             # Build version section with only non-empty sections
             my $version_section = "## $ENV{VERSION_NO_V} - $ENV{RELEASE_DATE}\n";
