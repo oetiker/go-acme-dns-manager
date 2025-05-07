@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+##  - 
 ### New
 - Added integration test to verify certificate renewal logic when required domains don't match actual certificate domains
 - Added JSON Schema validation for configuration files to detect misspelled keys and invalid structures
@@ -20,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Cleaned up codebase by removing unused validation functions and fixing linting issues
 - Fix tests failing because invalid config was used
+
 ## 0.5.3 - 2025-05-05
 
 ### Fixed
