@@ -44,8 +44,8 @@ acme_dns_server: "https://acme-dns.example.com"
 cert_storage_path: "` + tempDir + `"
 
 # Auto domains configuration for testing
-autoDomains:
-  graceDays: 30
+auto_domains:
+  grace_days: 30
   certs:
     example-com:
       domains:

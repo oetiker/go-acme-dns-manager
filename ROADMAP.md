@@ -1,6 +1,22 @@
 # Go ACME DNS Manager Developer Roadmap
 
-This document serves as the primary guide for developers working on the go-acme-dns-manager project. Whether you're a new contributor or returning to the codebase, this roadmap provides all the essential information to get started quickly.
+This document serves as t##### Configuration Schema Validation
+
+The application uses JSON Schema validation (Draft 2020-12) to ensure proper configuration:
+
+1. **Schema Definition**: Located in `pkg/manager/schema.go`
+2. **Validation Process**:
+   - When the configuration is loaded, it's validated against the JSON schema
+   - Validation catches misspelled keys, unsupported structures, and invalid data types
+   - Detailed error messages help users identify and fix configuration issues
+3. **Benefits**:
+   - Prevents silent failures from misspelled configuration keys
+   - Enforces proper data types and value ranges
+   - Gives users immediate feedback about configuration issues
+4. **Implementation**:
+   - Uses the `github.com/kaptinlin/jsonschema` library for JSON Schema Draft 2020-12 compliance
+   - Provides detailed validation error messages with specific locations of issues
+   - Supports additional properties validation to catch typographical errors in config keyside for developers working on the go-acme-dns-manager project. Whether you're a new contributor or returning to the codebase, this roadmap provides all the essential information to get started quickly.
 
 ## Quick Start
 
@@ -38,6 +54,7 @@ go-acme-dns-manager/
 │   ├── dnsverify.go          # DNS verification logic
 │   ├── legowrapper.go        # Interface to Lego ACME client library
 │   ├── logger.go             # Logger interface and implementation
+│   ├── schema.go             # JSON Schema for config validation
 │   └── ...
 ├── pkg/manager/test_mocks/   # Mock implementations for testing
 │   ├── acmedns_mock.go       # Mock ACME DNS server
@@ -56,11 +73,26 @@ go-acme-dns-manager/
 Start by understanding the application's core components:
 
 - **Configuration Management**: `pkg/manager/config.go`
+- **Configuration Schema**: `pkg/manager/schema.go`
 - **Command-Line Interface**: `cmd/go-acme-dns-manager/main.go`
 - **ACME DNS Integration**: `pkg/manager/acmedns.go`
 - **Lego ACME Client**: `pkg/manager/legowrapper.go`
 - **DNS Verification**: `pkg/manager/dnsverify.go`
 - **Logging System**: `pkg/manager/logger.go` and `pkg/manager/colorful_logger.go`
+
+#### Configuration Schema Validation
+
+The application uses JSON Schema validation to ensure proper configuration:
+
+1. **Schema Definition**: Located in `pkg/manager/schema.go`
+2. **Validation Process**:
+   - When the configuration is loaded, it's validated against the JSON schema
+   - Validation catches misspelled keys, unsupported structures, and invalid data types
+   - Detailed error messages help users identify and fix configuration issues
+3. **Benefits**:
+   - Prevents silent failures from misspelled configuration keys
+   - Enforces proper data types and value ranges
+   - Gives users immediate feedback about configuration issues
 
 #### Custom DNS Resolver Configuration
 

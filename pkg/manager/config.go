@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaptinlin/jsonschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,44 +71,35 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
+	// Validate configuration against schema
+	if err := validateConfig(data); err != nil {
+		return nil, err
+	}
+
 	// Resolve CertStoragePath relative to the config file directory
 	configDir := filepath.Dir(path)
 	if !filepath.IsAbs(cfg.CertStoragePath) {
 		cfg.CertStoragePath = filepath.Join(configDir, cfg.CertStoragePath)
 	}
 
-	// Basic validation
-	if cfg.Email == "" || cfg.Email == "your-email@example.com" {
-		return nil, fmt.Errorf("config error: 'email' must be set and not placeholder")
-	}
-	if cfg.AcmeServer == "" {
-		return nil, fmt.Errorf("config error: 'acme_server' must be set")
-	}
-	if cfg.AcmeDnsServer == "" {
-		return nil, fmt.Errorf("config error: 'acme_dns_server' must be set")
-	}
-	if cfg.CertStoragePath == "" {
-		return nil, fmt.Errorf("config error: 'cert_storage_path' must be set")
+	// Check for placeholder email (schema validates that email is present but can't check content)
+	if cfg.Email == "your-email@example.com" {
+		return nil, fmt.Errorf("config error: 'email' must not be the placeholder value")
 	}
 
-	// Validation for auto_domains section if present
+	// Additional validation/setup for auto_domains section if present
 	if cfg.AutoDomains != nil {
+		// Set default grace days if needed (schema ensures it's valid if present)
 		if cfg.AutoDomains.GraceDays <= 0 {
 			cfg.AutoDomains.GraceDays = DefaultGraceDays
 			DefaultLogger.Warnf("Warning: auto_domains.grace_days not set or invalid in config, defaulting to %d days.", DefaultGraceDays)
 		}
+
+		// Just provide a warning if certs map is empty
 		if len(cfg.AutoDomains.Certs) == 0 {
 			DefaultLogger.Warnf("Warning: auto_domains section found in config, but 'certs' map is empty or missing.")
 		}
-		for name, cert := range cfg.AutoDomains.Certs {
-			if len(cert.Domains) == 0 {
-				return nil, fmt.Errorf("config error: auto_domains.certs['%s'] must have at least one domain in its 'domains' list", name)
-			}
-			// Validate key_type if specified
-			if cert.KeyType != "" && !isValidKeyType(cert.KeyType) {
-				return nil, fmt.Errorf("config error: auto_domains.certs['%s'] has invalid key_type: '%s'", name, cert.KeyType)
-			}
-		}
+		// All other validations (domains list not empty, key_type validity) are handled by schema
 	}
 
 	return cfg, nil
@@ -309,4 +301,41 @@ func isValidKeyType(keyType string) bool {
 		}
 	}
 	return false
+}
+
+// validateConfig validates the configuration against the JSON schema.
+// It returns nil if the configuration is valid, or an error with validation messages otherwise.
+func validateConfig(config []byte) error {
+	// Convert YAML to JSON for validation
+	var yamlObj interface{}
+	if err := yaml.Unmarshal(config, &yamlObj); err != nil {
+		return fmt.Errorf("error parsing YAML: %w", err)
+	}
+
+	jsonData, err := json.Marshal(yamlObj)
+	if err != nil {
+		return fmt.Errorf("error converting YAML to JSON: %w", err)
+	}
+
+	// Compile the schema
+	compiler := jsonschema.NewCompiler()
+	schema, err := compiler.Compile([]byte(ConfigSchema))
+	if err != nil {
+		return fmt.Errorf("schema compilation error: %w", err)
+	}
+
+	// Unmarshal JSON data into an interface{} for validation
+	var instance interface{}
+	if err := json.Unmarshal(jsonData, &instance); err != nil {
+		return fmt.Errorf("error parsing JSON for validation: %w", err)
+	}
+
+	// Validate the instance against the schema
+	result := schema.Validate(instance)
+	if !result.IsValid() {
+		// Use our custom error formatter for friendly error messages
+		return FormatValidationError(result)
+	}
+
+	return nil
 }

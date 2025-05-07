@@ -38,12 +38,7 @@ build:
 # Run unit tests (excluding integration tests)
 test:
 	@echo "Running unit tests..."
-	$(GOTEST) -v ./...
-
-# Run all tests including integration tests
-test-all:
-	@echo "Running all tests (including integration)..."
-	RUN_INTEGRATION_TESTS=1 $(GOTEST) -v ./...
+	RUN_INTEGRATION_TESTS=1  $(GOTEST) -v ./...
 
 # Run linter
 lint:

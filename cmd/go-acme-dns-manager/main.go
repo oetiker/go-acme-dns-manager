@@ -244,7 +244,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		logger.Errorf("Error loading config file %s: %v", *configPath, err)
+		fmt.Fprintf(os.Stderr, "Config file error in %s: %v", *configPath, err)
 		os.Exit(1)
 	}
 	logger.Info("Configuration loaded successfully.")
