@@ -35,9 +35,9 @@ jobs:
         UNIT_TEST_EXIT_CODE=${PIPESTATUS[0]}
 
         # Count successes and failures
-        SUCCESS_COUNT=$(grep -c '"Action":"pass"' unit-test-results.json )
-        FAIL_COUNT=$(grep -c '"Action":"fail"' unit-test-results.json )
-        SKIP_COUNT=$(grep -c '"Action":"skip"' unit-test-results.json )
+        SUCCESS_COUNT=$(grep -c '"Action":"pass"' unit-test-results.json || true)
+        FAIL_COUNT=$(grep -c '"Action":"fail"' unit-test-results.json || true)
+        SKIP_COUNT=$(grep -c '"Action":"skip"' unit-test-results.json || true)
 
         # Add unit test summary to job summary
         echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
@@ -79,9 +79,9 @@ jobs:
         INTEGRATION_TEST_EXIT_CODE=${PIPESTATUS[0]}
 
         # Count successes and failures
-        SUCCESS_COUNT=$(grep -c '"Action":"pass"' integration-test-results.json )
-        FAIL_COUNT=$(grep -c '"Action":"fail"' integration-test-results.json )
-        SKIP_COUNT=$(grep -c '"Action":"skip"' integration-test-results.json )
+        SUCCESS_COUNT=$(grep -c '"Action":"pass"' integration-test-results.json || true)
+        FAIL_COUNT=$(grep -c '"Action":"fail"' integration-test-results.json || true)
+        SKIP_COUNT=$(grep -c '"Action":"skip"' integration-test-results.json || true)
 
         # Add integration test summary to job summary
         echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
@@ -125,9 +125,9 @@ jobs:
         echo "## Overall Test Summary" >> $GITHUB_STEP_SUMMARY
 
         if [ -f unit-test-results.json ] && [ -f integration-test-results.json ]; then
-          TOTAL_TESTS=$(( $(grep -c '"Action":"pass"' unit-test-results.json ) + $(grep -c '"Action":"pass"' integration-test-results.json ) ))
-          TOTAL_FAILED=$(( $(grep -c '"Action":"fail"' unit-test-results.json ) + $(grep -c '"Action":"fail"' integration-test-results.json ) ))
-          TOTAL_SKIPPED=$(( $(grep -c '"Action":"skip"' unit-test-results.json ) + $(grep -c '"Action":"skip"' integration-test-results.json ) ))
+          TOTAL_TESTS=$(( $(grep -c '"Action":"pass"' unit-test-results.json || true ) + $(grep -c '"Action":"pass"' integration-test-results.json || true ) ))
+          TOTAL_FAILED=$(( $(grep -c '"Action":"fail"' unit-test-results.json || true ) + $(grep -c '"Action":"fail"' integration-test-results.json || true ) ))
+          TOTAL_SKIPPED=$(( $(grep -c '"Action":"skip"' unit-test-results.json || true ) + $(grep -c '"Action":"skip"' integration-test-results.json || true ) ))
 
           echo "- Total tests: $TOTAL_TESTS" >> $GITHUB_STEP_SUMMARY
           echo "- Total failed: $TOTAL_FAILED" >> $GITHUB_STEP_SUMMARY
