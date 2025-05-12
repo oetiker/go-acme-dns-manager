@@ -21,15 +21,123 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Get dependencies
-      run: go mod download
+      run: |
+        echo "::group::Installing dependencies"
+        go mod download
+        echo "::endgroup::"
 
     - name: Run unit tests
-      run: go test ./... -v
+      id: unit-tests
+      run: |
+        echo "::group::Running unit tests"
+        echo "::notice title=Running Tests::Starting unit tests"
+        go test ./... -v -json | tee unit-test-results.json
+        UNIT_TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+        # Count successes and failures
+        SUCCESS_COUNT=$(grep -c '"Action":"pass"' unit-test-results.json || echo "0")
+        FAIL_COUNT=$(grep -c '"Action":"fail"' unit-test-results.json || echo "0")
+        SKIP_COUNT=$(grep -c '"Action":"skip"' unit-test-results.json || echo "0")
+
+        # Add unit test summary to job summary
+        echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Passed: $SUCCESS_COUNT" >> $GITHUB_STEP_SUMMARY
+        echo "- ❌ Failed: $FAIL_COUNT" >> $GITHUB_STEP_SUMMARY
+        echo "- ⏭️ Skipped: $SKIP_COUNT" >> $GITHUB_STEP_SUMMARY
+
+        # If tests failed, extract and display failure details
+        if [ $FAIL_COUNT -gt 0 ]; then
+          echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A 5 '"Action":"fail"' unit-test-results.json | grep -E '"Package"|"Test"|"Output"' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # Create annotations for failed tests
+          grep -B 2 -A 5 '"Action":"fail"' unit-test-results.json | while read -r line; do
+            if [[ $line == *'"Package"'* ]]; then
+              PACKAGE=$(echo $line | sed 's/.*"Package":"\([^"]*\)".*/\1/')
+            fi
+            if [[ $line == *'"Test"'* ]]; then
+              TEST=$(echo $line | sed 's/.*"Test":"\([^"]*\)".*/\1/')
+            fi
+            if [[ $line == *'"Output"'* ]]; then
+              OUTPUT=$(echo $line | sed 's/.*"Output":"\([^"]*\)".*/\1/')
+              echo "::error title=Test Failed::Package: $PACKAGE, Test: $TEST, Error: $OUTPUT"
+            fi
+          done
+        fi
+
+        echo "::endgroup::"
+        exit $UNIT_TEST_EXIT_CODE
 
     - name: Run integration tests
-      run: RUN_INTEGRATION_TESTS=1 go test ./... -v
+      id: integration-tests
+      run: |
+        echo "::group::Running integration tests"
+        echo "::notice title=Running Tests::Starting integration tests"
+        RUN_INTEGRATION_TESTS=1 go test ./... -v -json | tee integration-test-results.json
+        INTEGRATION_TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+        # Count successes and failures
+        SUCCESS_COUNT=$(grep -c '"Action":"pass"' integration-test-results.json || echo "0")
+        FAIL_COUNT=$(grep -c '"Action":"fail"' integration-test-results.json || echo "0")
+        SKIP_COUNT=$(grep -c '"Action":"skip"' integration-test-results.json || echo "0")
+
+        # Add integration test summary to job summary
+        echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Passed: $SUCCESS_COUNT" >> $GITHUB_STEP_SUMMARY
+        echo "- ❌ Failed: $FAIL_COUNT" >> $GITHUB_STEP_SUMMARY
+        echo "- ⏭️ Skipped: $SKIP_COUNT" >> $GITHUB_STEP_SUMMARY
+
+        # If tests failed, extract and display failure details
+        if [ $FAIL_COUNT -gt 0 ]; then
+          echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A 5 '"Action":"fail"' integration-test-results.json | grep -E '"Package"|"Test"|"Output"' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # Create annotations for failed tests
+          grep -B 2 -A 5 '"Action":"fail"' integration-test-results.json | while read -r line; do
+            if [[ $line == *'"Package"'* ]]; then
+              PACKAGE=$(echo $line | sed 's/.*"Package":"\([^"]*\)".*/\1/')
+            fi
+            if [[ $line == *'"Test"'* ]]; then
+              TEST=$(echo $line | sed 's/.*"Test":"\([^"]*\)".*/\1/')
+            fi
+            if [[ $line == *'"Output"'* ]]; then
+              OUTPUT=$(echo $line | sed 's/.*"Output":"\([^"]*\)".*/\1/')
+              echo "::error title=Integration Test Failed::Package: $PACKAGE, Test: $TEST, Error: $OUTPUT"
+            fi
+          done
+        fi
+
+        echo "::endgroup::"
+        exit $INTEGRATION_TEST_EXIT_CODE
 
     - name: Run linter
       uses: golangci/golangci-lint-action@v8
       with:
         version: latest
+
+    - name: Generate test summary
+      if: always()
+      run: |
+        echo "## Overall Test Summary" >> $GITHUB_STEP_SUMMARY
+
+        if [ -f unit-test-results.json ] && [ -f integration-test-results.json ]; then
+          TOTAL_TESTS=$(( $(grep -c '"Action":"pass"' unit-test-results.json || echo "0") + $(grep -c '"Action":"pass"' integration-test-results.json || echo "0") ))
+          TOTAL_FAILED=$(( $(grep -c '"Action":"fail"' unit-test-results.json || echo "0") + $(grep -c '"Action":"fail"' integration-test-results.json || echo "0") ))
+          TOTAL_SKIPPED=$(( $(grep -c '"Action":"skip"' unit-test-results.json || echo "0") + $(grep -c '"Action":"skip"' integration-test-results.json || echo "0") ))
+
+          echo "- Total tests: $TOTAL_TESTS" >> $GITHUB_STEP_SUMMARY
+          echo "- Total failed: $TOTAL_FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "- Total skipped: $TOTAL_SKIPPED" >> $GITHUB_STEP_SUMMARY
+
+          if [ $TOTAL_FAILED -eq 0 ]; then
+            echo "::notice title=Tests Summary::✅ All tests passed: $TOTAL_TESTS tests run, $TOTAL_SKIPPED skipped"
+          else
+            echo "::error title=Tests Summary::❌ Some tests failed: $TOTAL_FAILED failed out of $TOTAL_TESTS tests"
+          fi
+        else
+          echo "Test result files not found. Unable to generate summary." >> $GITHUB_STEP_SUMMARY
+        fi

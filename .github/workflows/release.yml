@@ -28,12 +28,17 @@ jobs:
 
       - name: Check branch
         run: |
+          echo "::group::Branch verification"
           CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           if [[ "$CURRENT_BRANCH" != "main" ]]; then
-            echo "::error::Release can only be run from the main branch. Current branch: $CURRENT_BRANCH"
+            echo "::error title=Wrong Branch::Release can only be run from the main branch. Current branch: $CURRENT_BRANCH"
+            echo "::notice::Please switch to the main branch and try again."
+            echo "Release attempted from non-main branch: $CURRENT_BRANCH" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
-          echo "Running on main branch, proceeding with release."
+          echo "::notice title=Branch Check Passed::Running on main branch, proceeding with release."
+          echo "✅ Branch verification passed - running on main branch" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
 
   # Check if tests have passed for this commit
   verify-tests:
@@ -48,6 +53,7 @@ jobs:
             const { owner, repo } = context.repo;
             const commitSha = context.sha;
 
+            console.log(`::group::Test verification`);
             console.log(`Checking test status for commit: ${commitSha}`);
 
             // Get workflow runs for the tests workflow
@@ -78,7 +84,7 @@ jobs:
               const inProgressRun = inProgressRuns.data.workflow_runs.find(run => run.head_sha === commitSha);
 
               if (inProgressRun) {
-                console.log('Tests are currently running for this commit. Will wait up to 2 minutes for completion...');
+                console.log('::notice title=Tests Running::Tests are currently running for this commit. Will wait up to 2 minutes for completion...');
 
                 // Implement a polling mechanism to wait for tests to complete
                 const runId = inProgressRun.id;
@@ -102,31 +108,64 @@ jobs:
                   // If the run is complete, check its conclusion
                   if (checkRun.data.status === 'completed') {
                     if (checkRun.data.conclusion === 'success') {
-                      console.log('Tests completed successfully while waiting!');
+                      console.log('::notice title=Tests Passed::Tests completed successfully while waiting!');
+                      await core.summary
+                        .addHeading('Tests Verification')
+                        .addRaw('✅ Tests completed successfully while waiting')
+                        .addLink('View test run', checkRun.data.html_url)
+                        .write();
+                      console.log('::endgroup::');
                       return; // Success - continue with the release
                     } else {
+                      console.log('::endgroup::');
+                      await core.summary
+                        .addHeading('Tests Failed')
+                        .addRaw(`❌ Tests completed with status: ${checkRun.data.conclusion}`)
+                        .addLink('View failed tests', checkRun.data.html_url)
+                        .write();
                       return core.setFailed(`Tests completed with status: ${checkRun.data.conclusion}. Please fix the failing tests before releasing.`);
                     }
                   }
                 }
 
                 // If we get here, we've timed out waiting
+                console.log('::endgroup::');
+                await core.summary
+                  .addHeading('Tests Timeout')
+                  .addRaw('⚠️ Timed out waiting for tests to complete')
+                  .addLink('View test run', inProgressRun.html_url)
+                  .write();
                 return core.setFailed('Timed out waiting for tests to complete. Try again in a minute or check if tests are stuck.');
               }
 
-              // No completed runs and no in-progress runs - run tests now
-              core.setFailed('No test runs found for this commit. Please run tests before releasing.');
-              return;
+              // No completed runs and no in-progress runs
+              console.log('::endgroup::');
+              await core.summary
+                .addHeading('Tests Missing')
+                .addRaw('❌ No test runs found for this commit')
+                .write();
+              return core.setFailed('No test runs found for this commit. Please run tests before releasing.');
             }
 
             // Check if the tests passed
             if (run.conclusion === 'success') {
-              console.log('Tests passed! Proceeding with release.');
+              console.log('::notice title=Tests Passed::Tests passed! Proceeding with release.');
+              await core.summary
+                .addHeading('Tests Verification')
+                .addRaw('✅ Tests passed - proceeding with release')
+                .addLink('View successful tests', run.html_url)
+                .write();
+              console.log('::endgroup::');
               return;
             } else {
               console.log(`Tests failed with conclusion: ${run.conclusion}`);
-              core.setFailed(`Tests failed for this commit with conclusion: ${run.conclusion}. Please fix the failing tests before releasing.`);
-              return;
+              console.log('::endgroup::');
+              await core.summary
+                .addHeading('Tests Failed')
+                .addRaw(`❌ Tests failed with conclusion: ${run.conclusion}`)
+                .addLink('View failed tests', run.html_url)
+                .write();
+              return core.setFailed(`Tests failed for this commit with conclusion: ${run.conclusion}. Please fix the failing tests before releasing.`);
             }
 
   create-tag:
@@ -134,6 +173,8 @@ jobs:
     needs: verify-tests
     outputs:
       version: ${{ steps.generate_version.outputs.version }}
+      version_no_v: ${{ steps.generate_version.outputs.version_no_v }}
+      release_date: ${{ steps.generate_version.outputs.release_date }}
     steps:
       - name: Checkout code with history
         uses: actions/checkout@v3
@@ -144,6 +185,7 @@ jobs:
         id: generate_version
         run: |
           set -euo pipefail
+          echo "::group::Version generation"
           # Get the latest tag from git
           git fetch --tags
           LATEST_TAG=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -174,7 +216,7 @@ jobs:
 
           # Generate new version
           NEW_VERSION="v$MAJOR.$MINOR.$PATCH"
-          echo "New version: $NEW_VERSION"
+          echo "::notice title=New Version::New version will be: $NEW_VERSION (from $LATEST_TAG)"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
           # Also create a version without the v prefix for CHANGES.md
@@ -184,12 +226,22 @@ jobs:
           RELEASE_DATE=$(date +%Y-%m-%d)
           echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
 
+          # Add version info to job summary
+          echo "## Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Previous version:** $LATEST_TAG" >> $GITHUB_STEP_SUMMARY
+          echo "- **New version:** $NEW_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release type:** ${{ github.event.inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release date:** $RELEASE_DATE" >> $GITHUB_STEP_SUMMARY
+
+          echo "::endgroup::"
+
       - name: Update CHANGES.md
         env:
           VERSION_NO_V: ${{ steps.generate_version.outputs.version_no_v }}
           RELEASE_DATE: ${{ steps.generate_version.outputs.release_date }}
         run: |
           set -euo pipefail
+          echo "::group::Updating CHANGES.md"
 
           # Use Perl to update CHANGES.md
           perl -i -e '
@@ -260,13 +312,14 @@ jobs:
           ' CHANGES.md
 
           echo "Updated CHANGES.md for version ${VERSION_NO_V}"
+          echo "::endgroup::"
 
       - name: Commit and Create tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          set +x
+          echo "::group::Creating tag and pushing changes"
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
@@ -275,11 +328,16 @@ jobs:
           # Commit CHANGES.md update
           git add CHANGES.md
           git commit -m "Update CHANGES.md for release ${VERSION}"
+          echo "::notice title=Commit Created::Created commit with CHANGES.md updates"
 
           # Create and push tag
           git tag -a ${VERSION} -m "Release ${VERSION}"
+          echo "::notice title=Tag Created::Created tag ${VERSION}"
+
           git push origin main
           git push origin ${VERSION}
+          echo "::notice title=Changes Pushed::Pushed changes and tag to repository"
+          echo "::endgroup::"
 
   build:
     needs: create-tag
@@ -299,10 +357,15 @@ jobs:
         id: build_package
         env:
           VERSION: ${{ needs.create-tag.outputs.version }}
+          VERSION_NO_V: ${{ needs.create-tag.outputs.version_no_v }}
         run: |
           set -euxo pipefail
+          echo "::group::Building and packaging"
           ARCHIVES_DIR="release-archives"
           mkdir -p "$ARCHIVES_DIR"
+
+          # Track built artifacts for summary
+          BUILT_ARTIFACTS=()
 
           # Define target platforms with their archive formats
           declare -A targets=(
@@ -315,6 +378,12 @@ jobs:
             ["illumos/amd64"]="tar.gz"
           )
 
+          # Add build info to job summary
+          echo "## Build Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms:** ${!targets[@]}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Building artifacts for:**" >> $GITHUB_STEP_SUMMARY
+
           for target in "${!targets[@]}"; do
             GOOS=$(echo $target | cut -d'/' -f1)
             GOARCH=$(echo $target | cut -d'/' -f2)
@@ -324,7 +393,9 @@ jobs:
               EXTENSION=".exe"
             fi
 
-            echo "Building for $GOOS/$GOARCH..."
+            echo "::group::Building for $GOOS/$GOARCH"
+            echo "- $GOOS/$GOARCH ($ARCHIVE_TYPE)" >> $GITHUB_STEP_SUMMARY
+
             # Create a temporary dir for each build to avoid conflicts
             TEMP_BUILD_DIR="build_temp_${GOOS}_${GOARCH}"
             mkdir -p "$TEMP_BUILD_DIR"
@@ -368,16 +439,25 @@ jobs:
             # Return to original directory
             cd "$CURRENT_DIR"
 
+            # Track built artifact
+            BUILT_ARTIFACTS+=("$ARCHIVE_NAME")
+
             # Clean up temp build dir for this platform
             rm -rf "$TEMP_BUILD_DIR"
+            echo "::endgroup::"
           done
 
-          echo "All builds and packages complete."
+          echo "::notice title=Build Complete::All builds and packages complete"
           echo "Generated archives in $ARCHIVES_DIR:"
           ls -l "$ARCHIVES_DIR"
 
-      - name: List files for debug
-        run: find release-archives -type f
+          # Add generated artifacts to summary
+          echo "## Generated Archives" >> $GITHUB_STEP_SUMMARY
+          for artifact in "${BUILT_ARTIFACTS[@]}"; do
+            echo "- $artifact" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "::endgroup::"
 
       - name: Upload all release artifacts
         uses: actions/upload-artifact@v4
@@ -399,20 +479,21 @@ jobs:
         with:
           name: release-artifacts # Name of the artifact to download
           path: release-archives/ # Path to download the artifact to
-        # This will download the single 'release-artifacts' artifact
-        # It will create a directory named 'release-artifacts' containing all the archives
 
       - name: List artifacts
         run: |
+          echo "::group::Listing artifacts"
           echo "Files in release-archives directory:"
           find release-archives -type f | sort
           echo "Making sure all files are accessible:"
           ls -la release-archives/
+          echo "::endgroup::"
 
       - name: Extract release notes
         id: extract_release_notes
         run: |
           set -e
+          echo "::group::Extracting release notes"
 
           # Extract version number without 'v' prefix for CHANGES.md
           VERSION_NO_V=$(echo "${{ needs.create-tag.outputs.version }}" | sed 's/^v//')
@@ -443,6 +524,7 @@ jobs:
           # Show the result
           echo "Release notes extracted to release_notes_final.md:"
           cat release_notes_final.md
+          echo "::endgroup::"
 
       - name: Set version without v prefix
         id: set_version_without_v
@@ -463,5 +545,15 @@ jobs:
           files: release-archives/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate release summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ needs.create-tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Date:** ${{ needs.create-tag.outputs.release_date }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release URL:** ${{ steps.create_release.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
+          cat release_notes_final.md >> $GITHUB_STEP_SUMMARY
 
 #END
