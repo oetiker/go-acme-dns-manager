@@ -10,8 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- Improved domain handling by always prioritizing base domains in account lookup and CNAME verification
+- Simplified account lookup logic to eliminate redundant wildcard/base domain checks
+- Updated ROADMAP.md to better explain the relationship between wildcard domains and base domains
 
 ### Fixed
+- Fixed issue where the system would fail when wildcard domains were listed before their base domains in auto_domains configuration
+- Simplified wildcard domain handling in CNAME verification logic
+- Fixed issue where valid CNAME records were incorrectly marked as requiring manual updates when registering new accounts
+- Eliminated unnecessary backward compatibility code in account lookup
 
 ## 0.6.1 - 2025-05-07
 ### Changed

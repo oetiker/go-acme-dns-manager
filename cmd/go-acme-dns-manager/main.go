@@ -421,21 +421,18 @@ func main() {
 		// 1. Verify/Register ACME DNS for all domains in this group
 		needsManualUpdate := false
 		logInfoMessage("Verifying/Registering ACME DNS accounts for %d domain(s)...", len(domains))
-		// For wildcard domains, we need to keep track of which base domains we've already validated
-		checkedBaseDomains := make(map[string]bool)
 
 		for _, domain := range domains {
-			// Check if this is a wildcard domain and if we've already validated the base domain
+			// Get base domain for optimization and logging purposes
 			baseDomain := manager.GetBaseDomain(domain)
-			if strings.HasPrefix(domain, "*.") && checkedBaseDomains[baseDomain] {
-				// We've already validated the base domain CNAME, skip redundant checks
-				logInfoMessage("Using already verified CNAME for %s based on %s", domain, baseDomain)
-				continue
-			}
 
-			account, exists := store.GetAccount(domain)
+			// Check if we have an account already for this domain
+			var account manager.AcmeDnsAccount
+			var exists bool
+			account, exists = store.GetAccount(domain)
 
 			if !exists {
+				// Register the account - RegisterNewAccount will handle wildcard/base domain relationships
 				logInfoMessage("Registering ACME DNS for %s...", domain)
 				newAccount, err := manager.RegisterNewAccount(cfg, store, domain)
 				if err != nil {
@@ -445,35 +442,49 @@ func main() {
 					break                 // Stop processing this cert group if registration fails
 				}
 
-				// Use the CreateRequiredCNAME helper function
-				requiredCNAMEs = append(requiredCNAMEs,
-					manager.CreateRequiredCNAME(domain, newAccount.FullDomain))
+				// Get the expected target domain for CNAME verification
+				cnameTarget := newAccount.FullDomain
 
-				needsManualUpdate = true
+				// Verify CNAME - VerifyCnameRecord handles base domain extraction internally
+				cnameValid, verifyErr := manager.VerifyCnameRecord(cfg, domain, cnameTarget)
+				if verifyErr != nil {
+					logger.Errorf("Error verifying CNAME record for %s: %v. Treating as invalid.", baseDomain, verifyErr)
+					requiredCNAMEs = append(requiredCNAMEs,
+						manager.CreateRequiredCNAME(baseDomain, cnameTarget))
+					needsManualUpdate = true
+				} else if !cnameValid {
+					logger.Errorf("CNAME record for %s is missing or invalid.", baseDomain)
+					requiredCNAMEs = append(requiredCNAMEs,
+						manager.CreateRequiredCNAME(baseDomain, cnameTarget))
+					needsManualUpdate = true
+				} else {
+					logInfoMessage("CNAME record for %s is valid.", baseDomain)
+				}
+
 				continue
 			}
 
-			// Account exists, verify CNAME
+			// Account exists, verify CNAME - VerifyCnameRecord handles base domain extraction
 			logInfoMessage("Verifying CNAME for %s...", domain)
 			cnameValid, err := manager.VerifyCnameRecord(cfg, domain, account.FullDomain)
 
-			// If this is a base domain and the CNAME is valid, mark it as checked
-			if cnameValid && !strings.HasPrefix(domain, "*.") {
-				checkedBaseDomains[domain] = true
-			}
-
-			if err != nil {
-				logger.Errorf("Error verifying CNAME record for %s: %v. Treating as invalid.", domain, err)
+			// If CNAME is valid, mark the base domain as checked
+			if cnameValid {
+				if domain != baseDomain {
+					logInfoMessage("CNAME record for %s is valid (also applies to %s)", baseDomain, domain)
+				} else {
+					logInfoMessage("CNAME record for %s is valid.", domain)
+				}
+			} else if err != nil {
+				logger.Errorf("Error verifying CNAME record for %s: %v. Treating as invalid.", baseDomain, err)
 				requiredCNAMEs = append(requiredCNAMEs,
-					manager.CreateRequiredCNAME(domain, account.FullDomain))
-				needsManualUpdate = true
-			} else if !cnameValid {
-				logger.Errorf("CNAME record for %s is missing or invalid.", domain)
-				requiredCNAMEs = append(requiredCNAMEs,
-					manager.CreateRequiredCNAME(domain, account.FullDomain))
+					manager.CreateRequiredCNAME(baseDomain, account.FullDomain))
 				needsManualUpdate = true
 			} else {
-				logInfoMessage("CNAME record for %s is valid.", domain)
+				logger.Errorf("CNAME record for %s is missing or invalid.", baseDomain)
+				requiredCNAMEs = append(requiredCNAMEs,
+					manager.CreateRequiredCNAME(baseDomain, account.FullDomain))
+				needsManualUpdate = true
 			}
 		} // End domain loop for ACME DNS
 

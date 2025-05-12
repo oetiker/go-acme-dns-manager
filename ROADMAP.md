@@ -236,7 +236,10 @@ When adding new log statements:
 
 When working with DNS challenge logic:
 
-1. Remember that wildcard domains share ACME DNS accounts with base domains
+1. Always work with the base domain first for account lookup and CNAME verification
+   - Wildcard domains (`*.example.com`) and their base domains (`example.com`) always share the same ACME DNS account
+   - The CNAME record is always set on the base domain (`_acme-challenge.example.com`)
+   - Never try to look up wildcard domain accounts separately - they're the same as their base domain accounts
 2. Use proper CNAME record formatting with BIND compatibility
 3. Handle DNS timeouts and errors gracefully
 
@@ -246,7 +249,9 @@ For certificate operations:
 
 1. Maintain backward compatibility with existing certificate storage
 2. Consider certificate renewal thresholds and grace periods
-3. Handle wildcard domains properly in domain validation
+3. Handle wildcard domains properly in domain validation:
+   - Always normalize to the base domain for validation operations
+   - Remember that a wildcard domain and its base domain require the same DNS validation
 
 ## Continuous Integration
 
