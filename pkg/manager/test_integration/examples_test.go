@@ -1,3 +1,6 @@
+//go:build testutils
+// +build testutils
+
 package test_integration
 
 import (

@@ -1,0 +1,22 @@
+# Gitleaks configuration file
+# This file configures how gitleaks scans for secrets in the repository
+
+[allowlist]
+description = "Allowlist for test files and known false positives"
+
+# Allow test files to contain fake private keys for testing purposes
+paths = [
+  ".*test_",
+  ".*_test"
+]
+
+# Allow specific patterns that are used in test files
+regexes = [
+  "TEST_FAKE_PRIVATE_KEY_FOR_UNIT_TESTING_ONLY_NOT_REAL",
+  "FAKE.*PRIVATE.*KEY.*TEST",
+  "TEST.*PRIVATE.*KEY.*FAKE"
+]
+
+# Allow test certificate data that looks like real certificates but is fake
+[allowlist.commits]
+# Can add specific commit hashes here if needed

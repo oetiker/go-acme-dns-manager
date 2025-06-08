@@ -1,22 +1,6 @@
 # Go ACME DNS Manager Developer Roadmap
 
-This document serves as t##### Configuration Schema Validation
-
-The application uses JSON Schema validation (Draft 2020-12) to ensure proper configuration:
-
-1. **Schema Definition**: Located in `pkg/manager/schema.go`
-2. **Validation Process**:
-   - When the configuration is loaded, it's validated against the JSON schema
-   - Validation catches misspelled keys, unsupported structures, and invalid data types
-   - Detailed error messages help users identify and fix configuration issues
-3. **Benefits**:
-   - Prevents silent failures from misspelled configuration keys
-   - Enforces proper data types and value ranges
-   - Gives users immediate feedback about configuration issues
-4. **Implementation**:
-   - Uses the `github.com/kaptinlin/jsonschema` library for JSON Schema Draft 2020-12 compliance
-   - Provides detailed validation error messages with specific locations of issues
-   - Supports additional properties validation to catch typographical errors in config keyside for developers working on the go-acme-dns-manager project. Whether you're a new contributor or returning to the codebase, this roadmap provides all the essential information to get started quickly.
+This document serves as a comprehensive guide for developers working on the go-acme-dns-manager project. Whether you're a new contributor or returning to the codebase, this roadmap provides all the essential information to get started quickly.
 
 ## Quick Start
 
@@ -39,29 +23,35 @@ The application uses JSON Schema validation (Draft 2020-12) to ensure proper con
 
 ## Project Structure
 
-The project follows a standard Go project layout:
+The project follows a modern, modular Go architecture with clean separation of concerns:
 
 ```
 go-acme-dns-manager/
 ├── cmd/go-acme-dns-manager/  # Main application entry point
-│   ├── main.go               # Application entry point
+│   ├── main.go               # Clean 80-line main function (was 537 lines)
 │   └── main_test.go          # Tests for command-line handling
-├── pkg/manager/              # Core business logic modules
-│   ├── acmedns.go            # ACME DNS client implementation
-│   ├── colorful_logger.go    # Colorful logging implementation
-│   ├── config.go             # Configuration handling (including DNS resolver settings)
-│   ├── constants.go          # Shared constants
-│   ├── dnsverify.go          # DNS verification logic
-│   ├── legowrapper.go        # Interface to Lego ACME client library
-│   ├── logger.go             # Logger interface and implementation
-│   ├── schema.go             # JSON Schema for config validation
-│   └── ...
-├── pkg/manager/test_mocks/   # Mock implementations for testing
-│   ├── acmedns_mock.go       # Mock ACME DNS server
-│   ├── acme_mock.go          # Mock Let's Encrypt server
-│   └── dns_mock.go           # Mock DNS resolver
+├── pkg/                      # Modular packages with single responsibilities
+│   ├── common/               # Shared interfaces, types, errors, context utilities
+│   │   ├── interfaces.go     # Interface abstractions for all external dependencies
+│   │   ├── errors.go         # Structured error handling with context and suggestions
+│   │   ├── context.go        # Context utilities for timeouts and request tracing
+│   │   └── types.go          # Common data types
+│   ├── app/                  # Application lifecycle and configuration management
+│   │   ├── application.go    # Main application struct with dependency injection
+│   │   └── *_test.go         # Comprehensive tests with context support
+│   └── manager/              # Core business logic (refactored from legacy)
+│       ├── acmedns.go        # ACME DNS client implementation
+│       ├── acme_accounts.go  # ACME user account management
+│       ├── cert_storage.go   # Certificate file operations
+│       ├── config.go         # Configuration handling
+│       ├── dnsverify.go      # DNS verification logic
+│       ├── legowrapper.go    # Core ACME operations
+│       ├── logger.go         # Logger implementation
+│       ├── schema.go         # JSON Schema for config validation
+│       └── test_*/           # Comprehensive test suites
 ├── .github/workflows/        # CI/CD pipeline configurations
 ├── CHANGES.md                # Changelog for the project
+├── ROADMAP.md               # Development roadmap and architecture guide
 ├── Makefile                  # Build and test commands
 └── README.md                 # Project overview and user documentation
 ```
@@ -70,15 +60,18 @@ go-acme-dns-manager/
 
 ### 1. Understanding the Code
 
-Start by understanding the application's core components:
+Start by understanding the application's core components in the new modular architecture:
 
-- **Configuration Management**: `pkg/manager/config.go`
-- **Configuration Schema**: `pkg/manager/schema.go`
-- **Command-Line Interface**: `cmd/go-acme-dns-manager/main.go`
-- **ACME DNS Integration**: `pkg/manager/acmedns.go`
-- **Lego ACME Client**: `pkg/manager/legowrapper.go`
+- **Application Entry Point**: `cmd/go-acme-dns-manager/main.go` (clean 80-line main)
+- **Application Lifecycle**: `pkg/app/application.go` (dependency injection, graceful shutdown)
+- **Shared Interfaces**: `pkg/common/interfaces.go` (abstractions for all external dependencies)
+- **Error Handling**: `pkg/common/errors.go` (structured errors with context and suggestions)
+- **Context Management**: `pkg/common/context.go` (timeouts, cancellation, request tracing)
+- **Configuration Management**: `pkg/manager/config.go` and `pkg/manager/schema.go`
+- **ACME Operations**: `pkg/manager/legowrapper.go` and `pkg/manager/acme_accounts.go`
 - **DNS Verification**: `pkg/manager/dnsverify.go`
-- **Logging System**: `pkg/manager/logger.go` and `pkg/manager/colorful_logger.go`
+- **Certificate Storage**: `pkg/manager/cert_storage.go`
+- **Logging System**: `pkg/manager/logger.go` (consolidated from multiple files)
 
 #### Configuration Schema Validation
 
@@ -168,20 +161,44 @@ The test suite includes mock implementations for external dependencies:
 - **Mock ACME Server**: Simulates Let's Encrypt API
 - **Mock DNS Resolver**: Simulates DNS lookups without actual network requests
 
+#### Test Coverage and Build Tags
+
+The project has excellent test coverage with a clean separation between production code and test utilities:
+
+**Current Test Coverage:**
+- **pkg/common**: 91.5% coverage (shared interfaces and utilities)
+- **pkg/app**: 71.2% coverage (application lifecycle management)
+- **cmd/go-acme-dns-manager**: 64.3% coverage (main application entry)
+- **pkg/manager**: 63.1% coverage (core business logic)
+
+**Build Tags for Test Organization:**
+Test utilities and mocks are excluded from coverage using build tags:
+- Files in `pkg/manager/test_helpers/` and `pkg/manager/test_mocks/` use `//go:build testutils`
+- Integration tests that depend on these utilities also use the `testutils` tag
+- This ensures coverage reports only include production code
+
 #### Running Tests
 
 ```bash
-# Run unit tests only
+# Run unit tests (production code only, excludes test utilities)
 make test
 
-# Run all tests including integration tests
+# Run all tests including integration tests with test utilities
 make test-all
 
-# Run tests manually with Go test command
-go test ./...
+# Run only integration tests with test utilities
+make test-integration
 
-# Run integration tests manually
-RUN_INTEGRATION_TESTS=1 go test ./...
+# Generate coverage report (production code only)
+make coverage
+
+# Generate coverage including test utilities
+make coverage-all
+
+# Manual test commands
+go test ./...                           # Unit tests only
+go test -tags testutils ./...           # All tests including utilities
+RUN_INTEGRATION_TESTS=1 go test -tags testutils ./...  # Integration tests
 ```
 
 ### 5. Code Quality
@@ -273,6 +290,55 @@ When preparing a release:
 3. Run the build and release workflow and pick the release level.
 
 The release workflow will update the version and tag the code and create a release on github.
+
+## Future Architectural Improvements
+
+The following architectural improvements have been identified for future development to further enhance the codebase. Note that many foundational improvements (JSON Schema validation, graceful shutdown, request tracing, structured errors, and context support) have already been implemented in the recent refactoring.
+
+### Current Priority
+
+1. **Testing Architecture**
+   - **Why**: While test coverage is good (63-91%), the test organization could be cleaner
+   - **What**: Consolidate similar test patterns, improve mock reusability across packages
+   - **Impact**: Easier maintenance and faster test development for new features
+
+2. **Concurrency and Performance**
+   - **Why**: Currently processes certificates sequentially, which is inefficient for large domain lists
+   - **What**: Implement concurrent certificate processing with proper rate limiting to respect ACME server limits
+   - **Impact**: Significantly faster execution for users managing many certificates
+
+3. **Enhanced Configuration Flexibility**
+   - **Why**: Current config mixes user preferences with implementation details
+   - **What**: Separate user-facing configuration from internal settings, add profile-based configs
+   - **Impact**: Simpler configuration for users, easier maintenance for developers
+
+### Future Considerations
+
+4. **Alternative Storage Backends** (if there's user demand)
+   - **Why**: Some users might need certificates stored in specific locations (e.g., directly in application directories)
+   - **What**: Simple pluggable storage interface - keep it minimal
+   - **Impact**: Allows integration with existing deployment workflows
+   - **Note**: Only implement if users actually request it
+
+### Explicitly NOT Planned
+
+The following features are **intentionally excluded** to keep the tool focused:
+
+- **Web interfaces** - Use existing tools like Traefik, Caddy, or nginx for this
+- **REST APIs** - CLI tools should stay CLI tools
+- **Daemon mode** - Use cron/systemd timers instead
+- **Enterprise features** - cert-manager, HashiCorp Vault, and commercial tools already handle enterprise needs
+- **Notification systems** - Monitoring tools like Prometheus + Alertmanager do this better
+- **Certificate templates/policies** - This is what proper certificate management platforms are for
+
+**Philosophy**: This tool should remain a focused, reliable CLI utility that does one thing well - managing ACME DNS certificates with minimal configuration. Users who need enterprise features should use enterprise tools.
+
+### Implementation Notes
+
+- These improvements should be implemented incrementally to maintain stability
+- Each change should include comprehensive tests to prevent regressions
+- Maintain backward compatibility for configuration and storage formats
+- Consider user feedback and real-world usage patterns when prioritizing features
 
 ## Getting Help
 

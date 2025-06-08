@@ -1,6 +1,68 @@
 # Go ACME DNS Manager
 
-This tool automates the process of obtaining and renewing Let's Encrypt certificates using the DNS-01 challenge with an `acme-dns` server. It is a Go application and directly integrates the `go-acme/lego` library.
+A focused, reliable CLI tool for obtaining and renewing Let's Encrypt certificates using the DNS-01 challenge with an `acme-dns` server.
+
+## Philosophy
+
+This tool follows the Unix philosophy of "do one thing and do it well." It is designed to be:
+
+- **Simple**: Minimal configuration, clear command-line interface
+- **Reliable**: Robust error handling, comprehensive testing, graceful failure modes
+- **Focused**: Certificate management only - no web interfaces, APIs, or enterprise features
+
+**What this tool IS:**
+- A CLI utility for ACME DNS certificate management with excellent wildcard support
+- Perfect for centralized certificate generation with secure distribution workflows
+- Ideal for organizations that want to generate certificates in one secure location and distribute them safely
+- Designed for users who want something more robust than basic scripts but simpler than enterprise solutions
+
+**What this tool is NOT:**
+- An enterprise certificate management platform (use cert-manager, HashiCorp Vault, or commercial tools)
+- A web service or daemon (use cron/systemd timers for automation)
+- A monitoring or notification system (integrate with existing monitoring tools)
+
+If you need enterprise features, web interfaces, or complex workflows, this tool is probably not for you.
+
+## Use Case: Secure Wildcard Certificate Management
+
+This tool was specifically designed to solve the wildcard certificate security problem:
+
+**The Challenge**: Wildcard certificates (`*.example.com`) are powerful but dangerous if the private keys are distributed widely. Traditional approaches either:
+- Give every service the ability to generate certificates (security risk)
+- Use complex enterprise certificate management (overkill for smaller setups)
+
+**Our Solution**: Centralized generation with secure distribution:
+1. **Generate once**: Use this tool in a secure, central location to generate wildcard certificates
+2. **Distribute safely**: Push certificates from the central location to services that need them
+3. **Minimize exposure**: Only the central certificate generation system needs ACME credentials
+4. **Double protection**: The acme-dns server itself is protected by both credentials and IP access restrictions
+5. **Automate renewals**: Services receive updated certificates without needing ACME access
+
+This approach gives you the convenience of wildcard certificates without distributing certificate generation capabilities across your infrastructure.
+
+## Use Case: Internal Services with Valid Certificates
+
+Another key use case is obtaining valid, browser-trusted certificates for internal services:
+
+**The Challenge**: Internal services (databases, monitoring tools, APIs) running on private networks need valid TLS certificates for:
+- Browser trust (no certificate warnings)
+- API client validation
+- Security best practices
+- Compliance requirements
+
+**Traditional Solutions Fall Short**:
+- **Self-signed certificates**: Require manual trust store management, browser warnings
+- **Internal CAs**: Complex PKI setup, client configuration, certificate distribution
+- **HTTP-01 challenges**: Require internet-reachable services (won't work for internal hosts)
+
+**Our Solution**: DNS-01 challenges work perfectly for internal services:
+1. **Internet connectivity not required**: DNS-01 validation doesn't need the service to be publicly accessible
+2. **Real certificates**: Get proper Let's Encrypt certificates that browsers and tools trust automatically
+3. **Centralized management**: Generate certificates for `internal.example.com`, `monitoring.example.com`, etc. from one secure location
+4. **Domain flexibility**: Use real domains or subdomains that resolve internally but aren't publicly accessible
+5. **Secure access control**: Only the central certificate generation system can access acme-dns (protected by credentials + IP restrictions)
+
+Example: Your internal monitoring dashboard at `https://grafana.internal.example.com` gets a real, trusted certificate even though the server is only accessible on your private network.
 
 ## Features
 
@@ -20,13 +82,26 @@ This tool automates the process of obtaining and renewing Let's Encrypt certific
 *   Proper wildcard domain handling that shares ACME DNS accounts between wildcard and base domains.
 *   BIND-style formatted DNS CNAME records for easy copying into zone files.
 
-## Installation / Building
+## Installation
+
+### Option 1: Download Pre-compiled Binary (Recommended)
+
+Download the latest release for your platform from:
+https://github.com/oetiker/go-acme-dns-manager/releases
+
+Available for Linux, macOS, Windows, and Illumos in the appropriate archive format.
+
+### Option 2: Build from Source
 
 1.  **Prerequisites:** Ensure you have Go installed (version 1.18 or later recommended).
-2.  **Clone Repository:** Clone the parent repository containing this tool.
-3.  **Build:** Navigate to this directory (`lego/go-acme-dns-manager`) and run:
+2.  **Clone Repository:**
     ```bash
-    go build .
+    git clone https://github.com/oetiker/go-acme-dns-manager.git
+    cd go-acme-dns-manager
+    ```
+3.  **Build:**
+    ```bash
+    make build
     ```
     This will create the `go-acme-dns-manager` executable in the current directory.
 

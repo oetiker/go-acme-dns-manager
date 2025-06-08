@@ -92,16 +92,3 @@ func ParseCertArg(arg string) (string, []string, string, error) {
 
 	return certName, domains, keyType, nil
 }
-
-// ParseCertRequest parses a certificate argument into a structured CertRequest
-func ParseCertRequest(arg string) (CertRequest, error) {
-	name, domains, keyType, err := ParseCertArg(arg)
-	if err != nil {
-		return CertRequest{}, err
-	}
-	return CertRequest{
-		Name:    name,
-		Domains: domains,
-		KeyType: keyType,
-	}, nil
-}
