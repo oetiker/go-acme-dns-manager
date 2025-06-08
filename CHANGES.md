@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.7.0 - 2025-06-08
+### New
 - **Comprehensive Test Coverage**: Added extensive test suites achieving excellent coverage across all modules:
   - **pkg/common**: 91.5% coverage with shared interfaces and utility testing
   - **pkg/app**: 71.2% coverage with application lifecycle management testing
