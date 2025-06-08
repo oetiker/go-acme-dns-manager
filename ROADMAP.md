@@ -201,9 +201,240 @@ go test -tags testutils ./...           # All tests including utilities
 RUN_INTEGRATION_TESTS=1 go test -tags testutils ./...  # Integration tests
 ```
 
-### 5. Code Quality
+### 5. Code Quality and Best Practices
 
-Maintain high code quality by following these standards:
+Maintain high code quality by following these standards and best practices specific to this ACME DNS manager application:
+
+#### Go Idioms for Perl/Python/JavaScript/TypeScript Developers
+
+If you're coming from a Perl, Python, JavaScript, or TypeScript background, here are key Go patterns used in this project that may be unfamiliar:
+
+1. **Explicit Error Handling** (vs. exceptions/try-catch/promises):
+   ```go
+   // Go: Explicit error checking (not try/catch)
+   cert, err := loadCertificate(path)
+   if err != nil {
+       return fmt.Errorf("failed to load certificate: %w", err)
+   }
+   // Continue with cert...
+   ```
+   Unlike try/catch (JS/TS/Python), eval/die (Perl), or promise rejections (JS), Go returns errors as values that must be explicitly checked.
+
+2. **Interfaces for Dependency Injection** (vs. duck typing):
+   ```go
+   // Go: Explicit interface definition (in pkg/common/interfaces.go)
+   type DNSResolver interface {
+       LookupCNAME(ctx context.Context, host string) (string, error)
+   }
+
+   // Function accepts interface, not concrete type
+   func verifyDNS(resolver DNSResolver, domain string) error {
+       cname, err := resolver.LookupCNAME(ctx, "_acme-challenge."+domain)
+       if err != nil {
+           return fmt.Errorf("DNS lookup failed: %w", err)
+       }
+       // Process cname...
+   }
+
+   // How it's used in practice - dependency injection at creation:
+   func NewCertManager(config *Config, resolver DNSResolver) *CertManager {
+       return &CertManager{
+           config:   config,
+           resolver: resolver, // Interface injected, not concrete type
+       }
+   }
+
+   // Called like this in main():
+   dnsResolver := &net.Resolver{} // Real implementation
+   certManager := NewCertManager(config, dnsResolver)
+
+   // Or in tests with a mock:
+   mockResolver := &MockDNSResolver{} // Test implementation
+   certManager := NewCertManager(config, mockResolver)
+   ```
+   Go uses explicit interfaces for dependency injection rather than duck typing (Python/JS), TypeScript interfaces (compile-time only), or Perl's implicit behavior. This allows easy testing with mocks.
+
+3. **Struct Methods** (vs. object-oriented classes):
+   ```go
+   // Go: Struct definition (like a class, but simpler)
+   type CertManager struct {
+       config   *Config
+       logger   Logger
+       resolver DNSResolver
+   }
+
+   // Method with receiver - the (cm *CertManager) part is the "self"
+   func (cm *CertManager) RenewCertificate(ctx context.Context, domain string) error {
+       // cm.config, cm.logger, cm.resolver are all accessible
+       cm.logger.Info("Starting certificate renewal for domain", domain)
+
+       // Call other methods on the same struct
+       if !cm.needsRenewal(domain) {
+           return nil
+       }
+
+       return cm.obtainNewCertificate(ctx, domain)
+   }
+
+   // Private method (lowercase name) - only accessible within same package
+   func (cm *CertManager) needsRenewal(domain string) bool {
+       // Implementation...
+   }
+
+   // How it's called in practice:
+   func main() {
+       certManager := NewCertManager(config, logger, resolver)
+
+       // Call method on the instance - looks familiar to Python/Perl users
+       err := certManager.RenewCertificate(ctx, "example.com")
+       if err != nil {
+           log.Fatal(err)
+       }
+   }
+   ```
+   Go uses struct methods with explicit receivers rather than class methods (JS/TS/Python) or Perl objects. The receiver `(cm *CertManager)` is equivalent to `this` (JS/TS), `self` (Python), or Perl's object reference.
+
+4. **Package-Level Organization** (vs. modules/namespaces):
+   ```go
+   // IMPORTANT: All files in same directory share the SAME namespace/package
+
+   // File: pkg/manager/config.go
+   package manager
+
+   type Config struct {
+       Domains []string
+   }
+
+   func LoadConfig(path string) (*Config, error) { } // Public (capital L)
+   func validatePath(path string) bool { }           // Private (lowercase v)
+
+   // File: pkg/manager/cert_storage.go
+   package manager // Same package name!
+
+   // Can directly use Config struct and validatePath() function from config.go
+   // No imports needed - they're in the same package namespace
+   func SaveCertificate(config *Config, cert []byte) error {
+       if !validatePath(config.CertPath) { // Direct access to private function
+           return errors.New("invalid path")
+       }
+       // Save certificate...
+   }
+
+   // File: pkg/manager/cert_manager.go
+   package manager // Same package again!
+
+   type CertManager struct {
+       config *Config // Direct access to Config type
+   }
+
+   func NewCertManager() *CertManager {
+       config, _ := LoadConfig("config.yaml") // Direct access to LoadConfig
+       return &CertManager{config: config}
+   }
+   ```
+   **Key insight**: Files in the same package work as if they were ONE BIG FILE. You can call private functions and access private types across files in the same package without imports. This is very different from ES6 modules (JS/TS), Python modules, or Perl packages where each file is separate.
+
+5. **Defer for Cleanup** (vs. finally/destructors):
+   ```go
+   // Go: defer ensures cleanup happens
+   func processFile(path string) error {
+       file, err := os.Open(path)
+       if err != nil {
+           return err
+       }
+       defer file.Close() // Always runs, even on early return
+
+       // Process file...
+       return nil
+   }
+   ```
+   Go's `defer` is more explicit than finally blocks (JS/TS/Python), context managers (Python), or END blocks (Perl).
+
+6. **Context for Cancellation** (vs. global signals):
+   ```go
+   // Go: Context flows through the entire call chain explicitly
+
+   // Top level - main() creates context with timeout
+   func main() {
+       ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+       defer cancel() // Always call cancel to free resources
+
+       app := NewApplication(config)
+       err := app.RenewAllCertificates(ctx) // Pass context down
+       if err != nil {
+           log.Fatal(err)
+       }
+   }
+
+   // Application level - passes context to manager
+   func (app *Application) RenewAllCertificates(ctx context.Context) error {
+       for _, domain := range app.config.Domains {
+           // Check if we've been cancelled before each domain
+           select {
+           case <-ctx.Done():
+               return fmt.Errorf("operation cancelled: %w", ctx.Err())
+           default:
+           }
+
+           // Pass context to next level
+           err := app.certManager.RenewCertificate(ctx, domain)
+           if err != nil {
+               return err
+           }
+       }
+       return nil
+   }
+
+   // Manager level - passes context to ACME operations
+   func (cm *CertManager) RenewCertificate(ctx context.Context, domain string) error {
+       // Context flows down to all operations that might take time
+       valid, err := cm.verifyDNS(ctx, domain)        // DNS lookup respects timeout
+       if err != nil {
+           return err
+       }
+
+       return cm.acmeClient.ObtainCertificate(ctx, domain) // ACME call respects timeout
+   }
+
+   // DNS verification also respects context
+   func (cm *CertManager) verifyDNS(ctx context.Context, domain string) (bool, error) {
+       // The context cancellation propagates all the way down to network calls
+       cname, err := cm.resolver.LookupCNAME(ctx, "_acme-challenge."+domain)
+       if err != nil {
+           return false, err
+       }
+       // Process result...
+   }
+   ```
+   **Key insight**: Context flows explicitly through every function call that might take time or do I/O. If main() times out or user hits Ctrl+C, ALL operations stop gracefully. This is very different from AbortController (JS/TS), signal handlers (Python/Perl), or threading events.
+
+7. **Type Safety** (vs. dynamic typing):
+   ```go
+   // Go: Explicit type declarations
+   type Config struct {
+       ACMEServerURL string        `yaml:"acme_server_url"`
+       Domains       []string      `yaml:"domains"`
+       RenewalDays   int          `yaml:"renewal_days"`
+   }
+
+   // Compile-time type checking prevents many runtime errors
+   ```
+   Go catches type errors at compile time rather than runtime, similar to TypeScript but stricter, unlike JavaScript/Python/Perl dynamic typing.
+
+8. **No Inheritance** (composition over inheritance):
+   ```go
+   // Go: Composition, not inheritance
+   type Application struct {
+       config      *Config
+       certManager *CertManager  // Embedded, not inherited
+       logger      Logger
+   }
+
+   // Use composition to build complex types
+   ```
+   Go favors composition and interfaces over class inheritance (JS/TS/Python) or Perl's object systems.
+
+#### General Go Best Practices
 
 - Use **Go best practices** for code structure and error handling
 - Store common values as **constants** in `constants.go`
@@ -224,6 +455,129 @@ make build
 make all
 ```
 
+#### Security Best Practices
+
+Given the sensitive nature of certificate management, follow these security guidelines:
+
+1. **Secrets Handling**:
+   - Never log private keys, passwords, or API tokens
+   - Use secure file permissions (`0600`) for certificate files and private keys
+   - Clear sensitive data from memory when possible
+   - Use `defer` statements to ensure cleanup of sensitive resources
+
+2. **Input Validation**:
+   - Always validate domain names using proper DNS validation
+   - Sanitize file paths to prevent directory traversal attacks
+   - Validate configuration values using JSON Schema (see `schema.go`)
+   - Use structured error handling with context for debugging
+
+3. **Network Security**:
+   - Use HTTPS for all external API calls
+   - Implement proper timeout handling for network operations
+   - Validate TLS certificates when making outbound connections
+   - Handle DNS resolution errors gracefully
+
+#### Error Handling Patterns
+
+Follow the established error handling patterns in this codebase:
+
+1. **Structured Errors** (see `pkg/common/errors.go`):
+   ```go
+   // Use structured errors with context
+   return fmt.Errorf("failed to save certificate for domain %s: %w", domain, err)
+
+   // Include suggestions for user action
+   return &ValidationError{
+       Field:       "domains",
+       Value:       domain,
+       Message:     "invalid domain format",
+       Suggestion:  "ensure domain follows RFC format (e.g., example.com)",
+   }
+   ```
+
+2. **Context Propagation**:
+   - Always pass and respect context for cancellation
+   - Use context timeouts for network operations
+   - Add request tracing information where helpful
+
+3. **Graceful Degradation**:
+   - Log errors but continue processing other domains when possible
+   - Provide meaningful error messages to users
+   - Include recovery suggestions in error messages
+
+#### Testing Best Practices
+
+1. **Test Organization**:
+   - Unit tests in `*_test.go` files alongside production code
+   - Integration tests in `test_integration/` directory
+   - Test utilities in `test_helpers/` with `//go:build testutils` tag
+   - Mock implementations in `test_mocks/` with appropriate build tags
+
+2. **Test Data**:
+   - Use clearly fake test data (see `.gitleaks.toml` configuration)
+   - Generate certificates using test helpers rather than hardcoding
+   - Use table-driven tests for multiple scenarios
+   - Test both success and failure cases
+
+3. **Mock Usage**:
+   - Mock external dependencies (DNS, ACME servers, file system)
+   - Use interfaces to enable easy mocking
+   - Test error conditions by controlling mock behavior
+
+#### Domain and Certificate Handling
+
+1. **Domain Normalization**:
+   - Always work with base domains for ACME DNS account operations
+   - Wildcard domains (`*.example.com`) and base domains (`example.com`) share accounts
+   - Use consistent domain validation across the codebase
+
+2. **Certificate Lifecycle**:
+   - Check certificate expiry before attempting renewal
+   - Compare domain lists to determine if certificate needs updating
+   - Handle certificate parsing errors gracefully
+   - Use atomic file operations for certificate storage
+
+#### Configuration and Schema
+
+1. **Configuration Management**:
+   - Use JSON Schema validation for all configuration (see `schema.go`)
+   - Provide clear error messages for configuration issues
+   - Support both file-based and programmatic configuration
+   - Validate configuration early in application startup
+
+2. **Schema Evolution**:
+   - Maintain backward compatibility when updating configuration schema
+   - Document configuration changes in CHANGES.md
+   - Use optional fields with sensible defaults for new features
+
+#### Logging Standards
+
+1. **Log Levels**:
+   - `Debug`: Detailed information for troubleshooting
+   - `Info`: General application flow and important events
+   - `Warn`: Recoverable issues that users should be aware of
+   - `Error`: Serious problems that prevent normal operation
+
+2. **Structured Logging**:
+   - Include relevant context (domain, operation, timestamps)
+   - Use consistent field names across log statements
+   - Support multiple output formats (emoji, color, ASCII, Go format)
+   - Never log sensitive information (private keys, passwords)
+
+#### Performance Considerations
+
+1. **Efficient Operations**:
+   - Use connection pooling for HTTP clients
+   - Implement appropriate timeouts for all network operations
+   - Consider concurrent processing for multiple domains (future enhancement)
+   - Cache DNS lookups when appropriate
+
+2. **Resource Management**:
+   - Close file handles and network connections properly
+   - Use `defer` statements for cleanup
+   - Avoid memory leaks in long-running operations
+   - Consider memory usage when processing large certificate lists
+
 #### Constants and Configurations
 
 Common values are stored as constants in `pkg/manager/constants.go` rather than being hard-coded throughout the application. These include:
@@ -231,6 +585,7 @@ Common values are stored as constants in `pkg/manager/constants.go` rather than 
 - File permissions (e.g., `0600` for sensitive files)
 - Default timeout values (e.g., DNS timeout, HTTP request timeout)
 - Grace periods for certificate renewal
+- Default retry counts and backoff strategies
 
 ## Feature Implementation Guidelines
 
