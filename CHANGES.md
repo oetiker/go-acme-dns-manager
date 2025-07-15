@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 0.7.2 - 2025-07-15
+### Fixed
 - **Test suite failures in CI**: Fixed app package tests that were making real ACME server calls instead of using mocks
   - Updated `CertificateManager` to use dependency injection for the ACME client function
   - Added `SetLegoRunner()` method to allow tests to inject a mock ACME client
