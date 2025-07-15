@@ -11,11 +11,18 @@ import (
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
+// LegoRunnerFunc is a function type that matches the signature of manager.RunLegoWithStore
+type LegoRunnerFunc func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error
+
+// DefaultLegoRunner is the default implementation that calls the real ACME server
+var DefaultLegoRunner LegoRunnerFunc = manager.RunLegoWithStore
+
 // CertificateManager handles certificate operations with clean separation of concerns
 type CertificateManager struct {
 	config       *manager.Config
 	logger       common.LoggerInterface
 	accountStore interface{}
+	legoRunner   LegoRunnerFunc
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -35,7 +42,13 @@ func NewCertificateManager(config *manager.Config, logger common.LoggerInterface
 		config:       config,
 		logger:       logger,
 		accountStore: store,
+		legoRunner:   DefaultLegoRunner,
 	}, nil
+}
+
+// SetLegoRunner sets a custom Lego runner function (mainly for testing)
+func (cm *CertificateManager) SetLegoRunner(runner LegoRunnerFunc) {
+	cm.legoRunner = runner
 }
 
 // CertRequest represents a certificate request
@@ -220,7 +233,7 @@ func (cm *CertificateManager) initCertificate(ctx context.Context, req CertReque
 	}
 
 	// Call the manager's RunLego function to obtain the certificate
-	err := manager.RunLegoWithStore(cm.config, cm.accountStore, "init", req.Name, req.Domains, req.KeyType)
+	err := cm.legoRunner(cm.config, cm.accountStore, "init", req.Name, req.Domains, req.KeyType)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate %s: %w", req.Name, err)
 	}
@@ -239,7 +252,7 @@ func (cm *CertificateManager) renewCertificate(ctx context.Context, req CertRequ
 	}
 
 	// Call the manager's RunLego function to renew the certificate
-	err := manager.RunLegoWithStore(cm.config, cm.accountStore, "renew", req.Name, req.Domains, req.KeyType)
+	err := cm.legoRunner(cm.config, cm.accountStore, "renew", req.Name, req.Domains, req.KeyType)
 	if err != nil {
 		return fmt.Errorf("failed to renew certificate %s: %w", req.Name, err)
 	}

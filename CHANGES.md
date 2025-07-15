@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **Test suite failures in CI**: Fixed app package tests that were making real ACME server calls instead of using mocks
+  - Updated `CertificateManager` to use dependency injection for the ACME client function
+  - Added `SetLegoRunner()` method to allow tests to inject a mock ACME client
+  - All app package tests now use `mockLegoRunner` instead of calling Let's Encrypt staging server
+  - Prevents test failures in CI environments where external network calls are problematic
+  - Maintains separation between unit tests and integration tests
 - **Wildcard certificate renewal failure**: Fixed critical issue where wildcard certificates could not be renewed
   - The renewal logic was looking for certificate files using the literal wildcard domain name `*.example.com`
   - Certificate files are actually stored using underscore naming convention `_.example.com`

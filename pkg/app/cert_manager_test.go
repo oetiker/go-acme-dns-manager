@@ -19,6 +19,51 @@ import (
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
 
+// mockLegoRunner is a mock implementation that doesn't make real ACME calls
+func mockLegoRunner(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
+	// Create certificate directories
+	certsDir := filepath.Join(cfg.CertStoragePath, "certificates")
+	if err := os.MkdirAll(certsDir, 0755); err != nil {
+		return err
+	}
+
+	// Generate mock certificate files
+	files := []struct {
+		path        string
+		content     string
+		permissions os.FileMode
+	}{
+		{
+			path:        filepath.Join(certsDir, certName+".crt"),
+			content:     "-----BEGIN CERTIFICATE-----\nMOCK CERTIFICATE FOR TESTING\n-----END CERTIFICATE-----",
+			permissions: 0644,
+		},
+		{
+			path:        filepath.Join(certsDir, certName+".key"),
+			content:     "-----BEGIN PRIVATE KEY-----\nMOCK PRIVATE KEY FOR TESTING\n-----END PRIVATE KEY-----",
+			permissions: 0600,
+		},
+		{
+			path:        filepath.Join(certsDir, certName+".json"),
+			content:     `{"domain":"` + domains[0] + `","domains":["` + domains[0] + `"],"certificate":"MOCK CERT DATA","key":"MOCK KEY DATA"}`,
+			permissions: 0600,
+		},
+		{
+			path:        filepath.Join(certsDir, certName+".issuer.crt"),
+			content:     "-----BEGIN CERTIFICATE-----\nMOCK ISSUER CERTIFICATE FOR TESTING\n-----END CERTIFICATE-----",
+			permissions: 0644,
+		},
+	}
+
+	for _, file := range files {
+		if err := os.WriteFile(file.path, []byte(file.content), file.permissions); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // mockLogger implements LoggerInterface for testing
 type mockLogger struct {
 	debugMessages []string
@@ -113,6 +158,9 @@ func TestProcessManualMode_Success(t *testing.T) {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
 
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
+
 	ctx := context.Background()
 	args := []string{
 		"test-cert@example.com,www.example.com",
@@ -197,6 +245,9 @@ func TestProcessAutoMode_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
+
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
 
 	ctx := context.Background()
 	err = cm.ProcessAutoMode(ctx)
@@ -419,6 +470,9 @@ func TestProcessRequests_Success(t *testing.T) {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
 
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
+
 	ctx := context.Background()
 	requests := []CertRequest{
 		{Name: "test1", Domains: []string{"example.com"}, KeyType: "rsa2048"},
@@ -452,6 +506,9 @@ func TestProcessRequest_InitAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
+
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
 
 	ctx := context.Background()
 	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
@@ -931,6 +988,9 @@ func TestInitCertificate_Placeholder(t *testing.T) {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
 
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
+
 	ctx := context.Background()
 	req := CertRequest{Name: "test-cert", Domains: []string{"example.com", "www.example.com"}, KeyType: "rsa2048"}
 
@@ -961,6 +1021,9 @@ func TestRenewCertificate_Placeholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
+
+	// Set mock runner to avoid real ACME calls
+	cm.SetLegoRunner(mockLegoRunner)
 
 	ctx := context.Background()
 	req := CertRequest{Name: "test-cert", Domains: []string{"example.com", "www.example.com"}, KeyType: "rsa2048"}
