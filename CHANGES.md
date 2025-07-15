@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **Auto-detection of new certificates**: Fixed issue where the program would fail when trying to renew a certificate that doesn't exist yet
+  - The `determineAction` function now properly checks for certificate file existence before deciding between "init" and "renew" actions
+  - New certificates are automatically detected and initialized using "init" action instead of failing with "renew"
+  - Prevents errors like "certificate file not found for primary domain" when working with new certificates
+  - Improves user experience by eliminating the need to manually run 'init' first for new certificates
 
 ## 0.7.0 - 2025-06-08
 ### New

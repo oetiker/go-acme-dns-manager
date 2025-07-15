@@ -2,9 +2,19 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 )
@@ -479,7 +489,7 @@ func TestProcessRequest_InitAction(t *testing.T) {
 	}
 }
 
-func TestDetermineAction_AlwaysInit(t *testing.T) {
+func TestDetermineAction_NewCertificate(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := createTestConfig(tmpDir)
 	logger := &mockLogger{}
@@ -496,10 +506,416 @@ func TestDetermineAction_AlwaysInit(t *testing.T) {
 		t.Fatalf("determineAction failed: %v", err)
 	}
 
-	// Currently always returns "init" in the placeholder implementation
 	if action != "init" {
-		t.Errorf("Expected action 'init', got '%s'", action)
+		t.Errorf("Expected action 'init' for new certificate, got '%s'", action)
 	}
+
+	// Verify debug message about missing metadata
+	found := false
+	for _, msg := range logger.debugMessages {
+		if strings.Contains(msg, "Certificate metadata not found") && strings.Contains(msg, "initializing new certificate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected debug message about missing metadata not found")
+	}
+}
+
+func TestDetermineAction_MissingCertificateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create only the metadata file without the actual certificate file
+	certDir := filepath.Join(tmpDir, "certificates")
+	err = os.MkdirAll(certDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create certificates directory: %v", err)
+	}
+
+	metadataPath := filepath.Join(certDir, "test-cert.json")
+	err = os.WriteFile(metadataPath, []byte(`{"domain": "example.com"}`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write metadata file: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	if action != "init" {
+		t.Errorf("Expected action 'init' for missing certificate file, got '%s'", action)
+	}
+
+	// Verify debug message about missing certificate file
+	found := false
+	for _, msg := range logger.debugMessages {
+		if strings.Contains(msg, "Certificate file not found") && strings.Contains(msg, "initializing new certificate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected debug message about missing certificate file not found")
+	}
+}
+
+func TestDetermineAction_ValidCertificate(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create a valid certificate that doesn't need renewal
+	err = createTestCertificateFiles(tmpDir, "test-cert", []string{"example.com"}, 90) // 90 days validity
+	if err != nil {
+		t.Fatalf("Failed to create test certificate: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	if action != "skip" {
+		t.Errorf("Expected action 'skip' for valid certificate, got '%s'", action)
+	}
+
+	// Verify info message about valid certificate
+	found := false
+	for _, msg := range logger.infoMessages {
+		if strings.Contains(msg, "is valid and doesn't need renewal") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected info message about valid certificate not found")
+	}
+}
+
+func TestDetermineAction_ExpiredCertificate(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create an expired certificate
+	err = createTestCertificateFiles(tmpDir, "test-cert", []string{"example.com"}, -1) // Expired 1 day ago
+	if err != nil {
+		t.Fatalf("Failed to create test certificate: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	if action != "renew" {
+		t.Errorf("Expected action 'renew' for expired certificate, got '%s'", action)
+	}
+
+	// Verify info message about renewal
+	found := false
+	for _, msg := range logger.infoMessages {
+		if strings.Contains(msg, "needs renewal") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected info message about renewal not found")
+	}
+}
+
+func TestDetermineAction_CertificateNearExpiry(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create a certificate that expires within renewal threshold (30 days)
+	err = createTestCertificateFiles(tmpDir, "test-cert", []string{"example.com"}, 15) // 15 days validity
+	if err != nil {
+		t.Fatalf("Failed to create test certificate: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	if action != "renew" {
+		t.Errorf("Expected action 'renew' for certificate near expiry, got '%s'", action)
+	}
+
+	// Verify info message about renewal
+	found := false
+	for _, msg := range logger.infoMessages {
+		if strings.Contains(msg, "needs renewal") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected info message about renewal not found")
+	}
+}
+
+func TestDetermineAction_DomainChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create a certificate with one domain
+	err = createTestCertificateFiles(tmpDir, "test-cert", []string{"example.com"}, 90) // 90 days validity
+	if err != nil {
+		t.Fatalf("Failed to create test certificate: %v", err)
+	}
+
+	// Request different domains
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com", "www.example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	if action != "renew" {
+		t.Errorf("Expected action 'renew' for domain changes, got '%s'", action)
+	}
+
+	// Verify info message about renewal
+	found := false
+	for _, msg := range logger.infoMessages {
+		if strings.Contains(msg, "needs renewal") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected info message about renewal not found")
+	}
+}
+
+func TestDetermineAction_InvalidRenewalThreshold(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	// Pass invalid renewal threshold type
+	_, err = cm.determineAction(req, "invalid-threshold")
+	if err == nil {
+		t.Error("Expected error for invalid renewal threshold type")
+	}
+
+	expectedErr := "invalid renewal threshold type"
+	if !strings.Contains(err.Error(), expectedErr) {
+		t.Errorf("Expected error to contain '%s', got '%s'", expectedErr, err.Error())
+	}
+}
+
+func TestDetermineAction_CertificateCheckError(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := createTestConfig(tmpDir)
+	logger := &mockLogger{}
+
+	cm, err := NewCertificateManager(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create certificate manager: %v", err)
+	}
+
+	// Create a malformed certificate file
+	certDir := filepath.Join(tmpDir, "certificates")
+	err = os.MkdirAll(certDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create certificates directory: %v", err)
+	}
+
+	certPath := filepath.Join(certDir, "test-cert.crt")
+	err = os.WriteFile(certPath, []byte("invalid-certificate-content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write certificate file: %v", err)
+	}
+
+	// Create metadata file
+	metadataPath := filepath.Join(certDir, "test-cert.json")
+	err = os.WriteFile(metadataPath, []byte(`{"domain": "example.com"}`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write metadata file: %v", err)
+	}
+
+	req := CertRequest{Name: "test-cert", Domains: []string{"example.com"}, KeyType: "rsa2048"}
+
+	action, err := cm.determineAction(req, config.GetRenewalThreshold())
+	if err != nil {
+		t.Fatalf("determineAction failed: %v", err)
+	}
+
+	// Should return "renew" when certificate check fails
+	if action != "renew" {
+		t.Errorf("Expected action 'renew' for certificate check error, got '%s'", action)
+	}
+
+	// Verify warning message about certificate check error
+	found := false
+	for _, msg := range logger.warnMessages {
+		if strings.Contains(msg, "Error checking certificate renewal status") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected warning message about certificate check error not found")
+	}
+}
+
+// generateTestCertificate creates a self-signed certificate for testing
+func generateTestCertificate(commonName string, dnsNames []string, notBefore, notAfter time.Time) ([]byte, []byte, error) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              dnsNames,
+	}
+
+	// Add IP addresses if domains contain IP addresses
+	for _, domain := range dnsNames {
+		if ip := net.ParseIP(domain); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		}
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Encode certificate to PEM
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+
+	// Encode private key to PEM
+	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privateKeyDER,
+	})
+
+	return certPEM, keyPEM, nil
+}
+
+// Helper function to create test certificate files
+func createTestCertificateFiles(baseDir, certName string, domains []string, validityDays int) error {
+	certDir := filepath.Join(baseDir, "certificates")
+	err := os.MkdirAll(certDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	// Generate certificate with specific validity period
+	notBefore := time.Now().Add(-24 * time.Hour)
+	notAfter := time.Now().Add(time.Duration(validityDays) * 24 * time.Hour)
+
+	// Create a realistic test certificate using the existing manager function
+	// This creates valid certificate files that work with CertificateNeedsRenewal
+	certPEM, keyPEM, err := generateTestCertificate(domains[0], domains, notBefore, notAfter)
+	if err != nil {
+		return err
+	}
+
+	// Write certificate file
+	certPath := filepath.Join(certDir, certName+".crt")
+	err = os.WriteFile(certPath, certPEM, 0644)
+	if err != nil {
+		return err
+	}
+
+	// Write key file
+	keyPath := filepath.Join(certDir, certName+".key")
+	err = os.WriteFile(keyPath, keyPEM, 0600)
+	if err != nil {
+		return err
+	}
+
+	// Create metadata file
+	metadata := fmt.Sprintf(`{
+		"domain": "%s",
+		"certUrl": "https://example.com/cert",
+		"certStableUrl": "https://example.com/cert",
+		"privateKey": "%s",
+		"certificate": "%s"
+	}`, domains[0],
+		strings.ReplaceAll(string(keyPEM), "\n", "\\n"),
+		strings.ReplaceAll(string(certPEM), "\n", "\\n"))
+
+	metadataPath := filepath.Join(certDir, certName+".json")
+	err = os.WriteFile(metadataPath, []byte(metadata), 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func TestInitCertificate_Placeholder(t *testing.T) {

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/oetiker/go-acme-dns-manager/pkg/common"
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
@@ -163,10 +165,48 @@ func (cm *CertificateManager) processRequest(ctx context.Context, req CertReques
 
 // determineAction determines what action is needed for a certificate
 func (cm *CertificateManager) determineAction(req CertRequest, renewalThreshold interface{}) (string, error) {
-	// Check if certificate metadata exists
-	// This would contain more sophisticated logic from the original main function
-	// For now, simplified version - would check file existence, domain changes, expiry, etc.
-	return "init", nil
+	// Convert renewalThreshold to time.Duration
+	threshold, ok := renewalThreshold.(time.Duration)
+	if !ok {
+		return "", fmt.Errorf("invalid renewal threshold type: %T", renewalThreshold)
+	}
+
+	// Check if certificate metadata exists - this determines if it's a new cert or renewal
+	certPath := filepath.Join(cm.config.CertStoragePath, "certificates", req.Name+".crt")
+	metadataPath := filepath.Join(cm.config.CertStoragePath, "certificates", req.Name+".json")
+
+	// If metadata file doesn't exist, it's a new certificate
+	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
+		cm.logger.Debugf("Certificate metadata not found at %s - initializing new certificate", metadataPath)
+		return "init", nil
+	} else if err != nil {
+		return "", fmt.Errorf("checking certificate metadata %s: %w", metadataPath, err)
+	}
+
+	// If certificate file doesn't exist, it's a new certificate
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		cm.logger.Debugf("Certificate file not found at %s - initializing new certificate", certPath)
+		return "init", nil
+	} else if err != nil {
+		return "", fmt.Errorf("checking certificate file %s: %w", certPath, err)
+	}
+
+	// Certificate exists, check if it needs renewal
+	needsRenewal, reason, err := manager.CertificateNeedsRenewal(certPath, req.Domains, threshold)
+	if err != nil {
+		cm.logger.Warnf("Error checking certificate renewal status: %v", err)
+		// If we can't check the certificate, assume it needs renewal
+		return "renew", nil
+	}
+
+	if needsRenewal {
+		cm.logger.Infof("Certificate %s needs renewal: %s", req.Name, reason)
+		return "renew", nil
+	}
+
+	// Certificate exists and doesn't need renewal
+	cm.logger.Infof("Certificate %s is valid and doesn't need renewal", req.Name)
+	return "skip", nil
 }
 
 // initCertificate initializes a new certificate
