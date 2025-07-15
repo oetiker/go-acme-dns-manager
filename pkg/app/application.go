@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +37,7 @@ type Application struct {
 	flags      *Flags
 	cancelFunc context.CancelFunc
 	done       chan struct{}
+	shutdownOnce sync.Once
 }
 
 // Flags encapsulates command line flag parsing
@@ -323,16 +325,19 @@ func (app *Application) setupGracefulShutdown(ctx context.Context) context.Conte
 }
 
 // Shutdown gracefully shuts down the application
+// This method is safe to call multiple times
 func (app *Application) Shutdown() {
-	if app.logger != nil {
-		app.logger.Info("Shutting down application...")
-	}
+	app.shutdownOnce.Do(func() {
+		if app.logger != nil {
+			app.logger.Info("Shutting down application...")
+		}
 
-	if app.cancelFunc != nil {
-		app.cancelFunc()
-	}
+		if app.cancelFunc != nil {
+			app.cancelFunc()
+		}
 
-	close(app.done)
+		close(app.done)
+	})
 }
 
 // WaitForShutdown waits for the application to shutdown
@@ -351,10 +356,12 @@ func (app *Application) Run(ctx context.Context) error {
 
 	// Handle early exit flags
 	if app.HandleVersionFlag() {
+		app.Shutdown()
 		return nil
 	}
 
 	if app.HandleConfigTemplate() {
+		app.Shutdown()
 		return nil
 	}
 
@@ -387,13 +394,56 @@ func (app *Application) Run(ctx context.Context) error {
 	}
 
 	// Continue with certificate processing...
-	// This would delegate to a CertificateManager from our new architecture
-	app.logger.Info("Certificate processing would continue here...")
+	// Load manager config and create certificate manager
+	managerConfig, err := app.LoadManagerConfig()
+	if err != nil {
+		return fmt.Errorf("loading manager config: %w", err)
+	}
+
+	certManager, err := NewCertificateManager(managerConfig, app.logger)
+	if err != nil {
+		return fmt.Errorf("creating certificate manager: %w", err)
+	}
+
+	// Process certificates based on mode
+	if app.config.AutoMode {
+		app.logger.Info("Starting automatic certificate processing...")
+		if err := certManager.ProcessAutoMode(ctx); err != nil {
+			return fmt.Errorf("processing certificates in auto mode: %w", err)
+		}
+	} else {
+		app.logger.Info("Starting manual certificate processing...")
+		args := flag.Args()
+		if len(args) == 0 {
+			return fmt.Errorf("no certificate requests provided in manual mode")
+		}
+		if err := certManager.ProcessManualMode(ctx, args); err != nil {
+			return fmt.Errorf("processing certificates in manual mode: %w", err)
+		}
+	}
+
+	app.logger.Info("Certificate processing completed successfully")
 
 	// Check if we were asked to shutdown during startup
 	if common.IsContextCanceled(ctx) {
 		return common.GetContextError(ctx, "application startup")
 	}
 
+	// Shutdown normally after completing work
+	app.Shutdown()
 	return nil
+}
+
+// LoadManagerConfig loads the manager configuration from the parsed config
+func (app *Application) LoadManagerConfig() (*manager.Config, error) {
+	app.logger.Debug("Loading manager configuration...")
+
+	// Load the configuration file
+	cfg, err := manager.LoadConfig(app.config.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading config file: %w", err)
+	}
+
+	app.logger.Debug("Manager configuration loaded successfully")
+	return cfg, nil
 }

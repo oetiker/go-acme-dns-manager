@@ -12,6 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **Wildcard certificate renewal failure**: Fixed critical issue where wildcard certificates could not be renewed
+  - The renewal logic was looking for certificate files using the literal wildcard domain name `*.example.com`
+  - Certificate files are actually stored using underscore naming convention `_.example.com`
+  - Fixed `legowrapper.go` to use `certName` instead of `primaryDomain` when looking for certificate files
+  - Wildcard certificates now renew correctly without "certificate file not found" errors
+  - Maintains consistency between certificate storage and lookup naming conventions
+- **Application hanging on exit**: Fixed critical issue where the application would hang indefinitely after completing its work
+  - The `Run()` method now properly calls `Shutdown()` after completing certificate processing
+  - Fixed early exit paths (version flag, config template flag) to call `Shutdown()` before returning
+  - Made `Shutdown()` method thread-safe using `sync.Once` to prevent panic from multiple calls
+  - Application now exits cleanly in all scenarios instead of hanging on `WaitForShutdown()`
+  - Improved user experience by eliminating the need to manually terminate the application
+- **Test suite improvements**: Enhanced test coverage to catch application lifecycle issues
+  - Added `TestApplication_FullLifecycle` test that verifies complete `Run()` + `WaitForShutdown()` flow
+  - Fixed integration test that was working around the hanging bug instead of exposing it
+  - Re-enabled `TestApplication_WaitForShutdown_Extended` test with proper implementation
+  - Test suite now properly validates application shutdown behavior and would catch similar issues
 
 ## 0.7.1 - 2025-07-15
 ### Fixed

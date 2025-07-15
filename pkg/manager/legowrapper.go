@@ -16,6 +16,17 @@ import (
 	"github.com/go-acme/lego/v4/registration"
 )
 
+// RunLegoWithStore is a wrapper function that accepts interface{} for the store parameter
+// and performs the type assertion internally. This allows external packages to call RunLego
+// without needing to import the unexported accountStore type.
+func RunLegoWithStore(cfg *Config, store interface{}, action string, certName string, domainsToProcess []string, keyType string) error {
+	accountStore, ok := store.(*accountStore)
+	if !ok {
+		return fmt.Errorf("invalid store type: expected *accountStore, got %T", store)
+	}
+	return RunLego(cfg, accountStore, action, certName, domainsToProcess, keyType)
+}
+
 // RunLego performs the certificate obtain or renew operation.
 // Accepts config, account store, action, the certificate name, the domains list, and optional key type.
 // Exported function
@@ -177,13 +188,13 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 		primaryDomain := domainsToProcess[0]
 		DefaultLogger.Infof("Attempting to renew certificate associated with primary domain %s (covers: %v)", primaryDomain, domainsToProcess)
 
-		// Check if the certificate resource file exists for the primary domain.
-		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.json", primaryDomain)) // Use renamed field
+		// Check if the certificate resource file exists for the certificate name.
+		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.json", certName)) // Use renamed field
 		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
 			// Also check the .crt file for robustness
-			certPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.crt", primaryDomain)) // Use renamed field
+			certPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.crt", certName)) // Use renamed field
 			if _, err := os.Stat(certPath); os.IsNotExist(err) {
-				return fmt.Errorf("cannot renew: certificate file not found for primary domain %s at %s (and %s). Run 'init' first?", primaryDomain, certPath, metaPath)
+				return fmt.Errorf("cannot renew: certificate file not found for certificate %s at %s (and %s). Run 'init' first?", certName, certPath, metaPath)
 			}
 			DefaultLogger.Warnf("Warning: Certificate metadata file %s missing, but certificate %s exists. Attempting renewal but might lack SANs.", metaPath, certPath)
 			// Proceed without existingCert, Lego might handle it? Or fail.

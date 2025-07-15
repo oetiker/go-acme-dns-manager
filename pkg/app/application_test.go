@@ -110,6 +110,41 @@ func TestApplication_Run(t *testing.T) {
 	}
 }
 
+// TestApplication_FullLifecycle tests the complete application lifecycle
+// including both Run() and WaitForShutdown() to ensure proper shutdown
+func TestApplication_FullLifecycle(t *testing.T) {
+	app := NewApplication("test-version")
+	app.config.ShowVersion = true // This should cause early exit
+
+	ctx := context.Background()
+
+	// Create a channel to signal when WaitForShutdown completes
+	shutdownComplete := make(chan struct{})
+
+	// Start the application lifecycle in a goroutine
+	go func() {
+		defer close(shutdownComplete)
+
+		// Run the application
+		err := app.Run(ctx)
+		if err != nil {
+			t.Errorf("Expected no error for version flag, got: %v", err)
+			return
+		}
+
+		// Wait for shutdown - this should not hang
+		app.WaitForShutdown()
+	}()
+
+	// Wait for completion with a reasonable timeout
+	select {
+	case <-shutdownComplete:
+		// Success - application completed and shutdown properly
+	case <-time.After(5 * time.Second):
+		t.Fatal("Application lifecycle test timed out - likely hanging in WaitForShutdown()")
+	}
+}
+
 // This demonstrates how the new architecture enables:
 // 1. Unit testing of individual functions
 // 2. Mocking of dependencies
@@ -432,8 +467,38 @@ func TestApplication_Shutdown(t *testing.T) {
 	// signal handler goroutine causing test interference
 }
 
-// Note: TestApplication_WaitForShutdown_Extended disabled due to
-// signal handler goroutine interference causing panic in tests
+// TestApplication_WaitForShutdown_Extended tests shutdown behavior without signal interference
+func TestApplication_WaitForShutdown_Extended(t *testing.T) {
+	app := NewApplication("test-version")
+
+	// Test that WaitForShutdown blocks until Shutdown is called
+	shutdownComplete := make(chan struct{})
+
+	// Start WaitForShutdown in a goroutine
+	go func() {
+		defer close(shutdownComplete)
+		app.WaitForShutdown()
+	}()
+
+	// Verify it doesn't complete immediately
+	select {
+	case <-shutdownComplete:
+		t.Error("WaitForShutdown should not complete immediately")
+	case <-time.After(100 * time.Millisecond):
+		// Good - WaitForShutdown is blocking as expected
+	}
+
+	// Now call Shutdown
+	app.Shutdown()
+
+	// Verify WaitForShutdown completes
+	select {
+	case <-shutdownComplete:
+		// Good - WaitForShutdown completed after Shutdown
+	case <-time.After(1 * time.Second):
+		t.Error("WaitForShutdown should complete after Shutdown()")
+	}
+}
 
 // TestApplication_ParseFlags tests flag parsing
 func TestApplication_ParseFlags_Extended(t *testing.T) {

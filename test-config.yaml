@@ -1,4 +1,17 @@
-email: "test@example.com"
+email: "test@gmail.com"
 acme_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 acme_dns_server: "https://auth.acme-dns.io"
 cert_storage_path: "./data"
+
+auto_domains:
+  grace_days: 30
+  certs:
+    example-cert:
+      key_type: "ec256"
+      domains:
+        - "example.com"
+        - "www.example.com"
+    api-cert:
+      key_type: "rsa2048"
+      domains:
+        - "api.example.com"

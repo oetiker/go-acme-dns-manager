@@ -40,6 +40,9 @@ func (m *mockLogger) Importantf(format string, args ...interface{})     { m.info
 // Helper function to create a test config
 func createTestConfig(tmpDir string) *manager.Config {
 	return &manager.Config{
+		Email:           "test@valid-domain.org",
+		AcmeServer:      "https://acme-staging-v02.api.letsencrypt.org/directory",
+		AcmeDnsServer:   "https://acme-dns.example.com",
 		CertStoragePath: tmpDir,
 		AutoDomains: &manager.AutoDomainsConfig{
 			GraceDays: 30, // 30 days before renewal

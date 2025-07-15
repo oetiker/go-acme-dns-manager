@@ -567,9 +567,9 @@ func TestMain_Subprocess(t *testing.T) {
 		{
 			name:       "Version Flag",
 			args:       []string{"-version"},
-			expectExit: -1, // Program hangs due to WaitForShutdown, gets killed by timeout
+			expectExit: 0, // Should exit cleanly after showing version
 			expectOut:  "go-acme-dns-manager",
-			timeout:    2 * time.Second, // Shorter timeout since we expect hanging
+			timeout:    5 * time.Second,
 		},
 		{
 			name:       "Invalid Config Path",

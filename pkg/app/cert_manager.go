@@ -15,7 +15,7 @@ import (
 type CertificateManager struct {
 	config       *manager.Config
 	logger       common.LoggerInterface
-	accountStore interface{} // Will be replaced with storage interface
+	accountStore interface{}
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -23,10 +23,11 @@ func NewCertificateManager(config *manager.Config, logger common.LoggerInterface
 	accountsFilePath := filepath.Join(config.CertStoragePath, "acme-dns-accounts.json")
 	logger.Infof("Loading ACME DNS accounts from %s...", accountsFilePath)
 
-	// In the refactored version, this would use our storage interface
-	// store, err := storage.NewAccountStore(accountsFilePath, logger, fileSystem)
-	// For now, placeholder
-	var store interface{}
+	// Initialize the account store
+	store, err := manager.NewAccountStore(accountsFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("creating account store: %w", err)
+	}
 
 	logger.Info("ACME DNS accounts loaded successfully.")
 
@@ -213,9 +214,18 @@ func (cm *CertificateManager) determineAction(req CertRequest, renewalThreshold 
 func (cm *CertificateManager) initCertificate(ctx context.Context, req CertRequest) error {
 	cm.logger.Infof("Initializing certificate %s for domains %v", req.Name, req.Domains)
 
-	// This would contain the actual certificate initialization logic
-	// Using the clean interfaces we established
+	// Check if we were asked to shutdown
+	if common.IsContextCanceled(ctx) {
+		return common.GetContextError(ctx, "certificate initialization")
+	}
 
+	// Call the manager's RunLego function to obtain the certificate
+	err := manager.RunLegoWithStore(cm.config, cm.accountStore, "init", req.Name, req.Domains, req.KeyType)
+	if err != nil {
+		return fmt.Errorf("failed to initialize certificate %s: %w", req.Name, err)
+	}
+
+	cm.logger.Infof("Certificate %s initialized successfully", req.Name)
 	return nil
 }
 
@@ -223,8 +233,17 @@ func (cm *CertificateManager) initCertificate(ctx context.Context, req CertReque
 func (cm *CertificateManager) renewCertificate(ctx context.Context, req CertRequest) error {
 	cm.logger.Infof("Renewing certificate %s for domains %v", req.Name, req.Domains)
 
-	// This would contain the actual certificate renewal logic
-	// Using the clean interfaces we established
+	// Check if we were asked to shutdown
+	if common.IsContextCanceled(ctx) {
+		return common.GetContextError(ctx, "certificate renewal")
+	}
 
+	// Call the manager's RunLego function to renew the certificate
+	err := manager.RunLegoWithStore(cm.config, cm.accountStore, "renew", req.Name, req.Domains, req.KeyType)
+	if err != nil {
+		return fmt.Errorf("failed to renew certificate %s: %w", req.Name, err)
+	}
+
+	cm.logger.Infof("Certificate %s renewed successfully", req.Name)
 	return nil
 }
