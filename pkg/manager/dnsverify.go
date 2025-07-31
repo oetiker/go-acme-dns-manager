@@ -114,6 +114,7 @@ func GetChallengeSubdomain(domain string) string {
 
 // VerifyCnameRecord checks if the _acme-challenge CNAME record for the domain
 // points to the expected target (the fulldomain from acme-dns).
+// If verification fails, it prints helpful DNS setup instructions.
 // Exported function
 func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool, error) {
 	baseDomain := GetBaseDomain(domain)
@@ -149,7 +150,14 @@ func VerifyCnameRecord(cfg *Config, domain string, expectedTarget string) (bool,
 		resolver = &DefaultDNSResolver{Resolver: net.DefaultResolver}
 	}
 
-	return VerifyWithResolver(resolver, challengeDomain, expectedTarget)
+	isValid, err := VerifyWithResolver(resolver, challengeDomain, expectedTarget)
+
+	// If verification failed (but no error), print helpful instructions
+	if err == nil && !isValid {
+		PrintCnameInstructions(challengeDomain, expectedTarget, domain)
+	}
+
+	return isValid, err
 }
 
 // VerifyWithResolver performs the actual CNAME verification with the provided resolver
@@ -183,4 +191,27 @@ func VerifyWithResolver(resolver DNSResolver, challengeDomain string, expectedTa
 	}
 
 	return isValid, nil
+}
+
+// PrintCnameInstructions prints helpful CNAME setup instructions for the user
+// This provides the same helpful output that users see when setting up new domains
+func PrintCnameInstructions(challengeDomain string, expectedTarget string, originalDomain string) {
+	DefaultLogger.Infof("")
+	DefaultLogger.Infof("===== REQUIRED DNS CHANGES =====")
+	DefaultLogger.Infof("Add the following CNAME record to your DNS:")
+	DefaultLogger.Infof("")
+
+	// Create a descriptive comment showing which domain this is for
+	var comment string
+	if strings.HasPrefix(originalDomain, "*.") {
+		comment = fmt.Sprintf("; %s (wildcard)", originalDomain)
+	} else {
+		comment = fmt.Sprintf("; %s", originalDomain)
+	}
+
+	DefaultLogger.Infof("%s", comment)
+	DefaultLogger.Infof("%s. IN CNAME %s.", challengeDomain, expectedTarget)
+	DefaultLogger.Infof("")
+	DefaultLogger.Infof("=================================")
+	DefaultLogger.Infof("")
 }

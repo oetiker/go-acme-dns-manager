@@ -138,5 +138,10 @@ func RegisterNewAccountWithDeps(cfg *Config, store *accountStore, domain string,
 	}
 
 	logger.Infof("Successfully registered %s. Account details saved to %s.", domain, store.filePath)
+
+	// Show helpful CNAME setup instructions for the newly registered account
+	challengeDomain := GetChallengeSubdomain(baseDomain)
+	PrintCnameInstructions(challengeDomain, newAccount.FullDomain, domain)
+
 	return &newAccount, nil
 }
