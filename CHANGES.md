@@ -8,16 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.7.3 - 2025-07-31
+### New
 - **DNS setup instructions**: Restored helpful CNAME record setup instructions that were lost during previous refactoring
   - Shows BIND-compatible DNS instructions when new ACME DNS accounts are registered
   - Shows BIND-compatible DNS instructions when existing CNAME records are missing or invalid
   - Supports both regular domains (`example.com`) and wildcard domains (`*.example.com`) with appropriate labels
   - Uses the format "===== REQUIRED DNS CHANGES =====" matching the README documentation
   - Provides actionable DNS setup guidance in all scenarios where CNAME configuration is needed
-
-### Changed
-
-### Fixed
 
 ## 0.7.2 - 2025-07-15
 ### Fixed
