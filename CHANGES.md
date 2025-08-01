@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 0.7.4 - 2025-08-01
+### Fixed
 - **DNS verification before certificate requests**: Fixed issue where missing CNAME records caused confusing Let's Encrypt errors
   - Added DNS verification before attempting certificate requests to show helpful instructions early
   - Users now see clear BIND-compatible DNS setup instructions instead of cryptic NXDOMAIN errors
