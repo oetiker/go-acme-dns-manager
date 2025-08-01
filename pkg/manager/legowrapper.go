@@ -165,6 +165,31 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	switch action {
 	case "init":
 		DefaultLogger.Infof("Requesting new certificate for domains: %v", domainsToProcess) // Use domainsToProcess
+
+		// Verify CNAME records are set up before attempting certificate request
+		// This will show helpful DNS setup instructions if CNAMEs are missing
+		for _, domain := range domainsToProcess {
+			baseDomain := GetBaseDomain(domain)
+			account, exists := store.GetAccount(baseDomain)
+			if !exists {
+				// Try wildcard version
+				wildcardDomain := "*." + baseDomain
+				account, exists = store.GetAccount(wildcardDomain)
+				if !exists {
+					return fmt.Errorf("no ACME DNS account found for domain %s", domain)
+				}
+			}
+
+			// This will automatically display DNS setup instructions if CNAME is missing
+			cnameValid, err := VerifyCnameRecord(cfg, domain, account.FullDomain)
+			if err != nil {
+				return fmt.Errorf("DNS verification failed for %s: %w", domain, err)
+			}
+			if !cnameValid {
+				return fmt.Errorf("DNS setup required: CNAME record missing for %s", domain)
+			}
+		}
+
 		request := certificate.ObtainRequest{
 			Domains: domainsToProcess, // Use domainsToProcess
 			Bundle:  true,             // Get certificate chain
