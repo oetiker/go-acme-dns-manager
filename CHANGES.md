@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.8.0 - 2025-08-13
+### New
 - **Enhanced Test Coverage**: Added comprehensive tests for DNS verification before certificate requests
   - Tests verify that missing CNAME records are detected early with helpful error messages
   - Tests ensure wildcard account fallback logic works correctly
