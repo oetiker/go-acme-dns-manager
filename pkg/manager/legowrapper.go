@@ -1,11 +1,15 @@
 package manager
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -15,6 +19,10 @@ import (
 	"github.com/go-acme/lego/v4/providers/dns/acmedns"
 	"github.com/go-acme/lego/v4/registration"
 )
+
+// ErrDNSSetupNeeded is returned when DNS configuration is required.
+// This is not really an error but a normal part of the setup flow.
+var ErrDNSSetupNeeded = errors.New("DNS configuration needed")
 
 // RunLegoWithStore is a wrapper function that accepts interface{} for the store parameter
 // and performs the type assertion internally. This allows external packages to call RunLego
@@ -27,16 +35,149 @@ func RunLegoWithStore(cfg *Config, store interface{}, action string, certName st
 	return RunLego(cfg, accountStore, action, certName, domainsToProcess, keyType)
 }
 
+// PreCheckAcmeDNS ensures all domains have ACME-DNS accounts and valid CNAME records
+// Returns true if all domains are ready, false if DNS setup is needed
+func PreCheckAcmeDNS(cfg *Config, store *accountStore, domains []string) (bool, error) {
+	needsDNSSetup := false
+	domainsNeedingSetup := []string{}
+	cnameInstructions := []string{}
+
+	// First pass: Register any missing ACME-DNS accounts
+	for _, domain := range domains {
+		baseDomain := GetBaseDomain(domain)
+		_, exists := store.GetAccount(baseDomain)
+		if !exists {
+			// Try wildcard version
+			wildcardDomain := "*." + baseDomain
+			_, exists = store.GetAccount(wildcardDomain)
+			if !exists {
+				// No account exists, register a new one with acme-dns
+				DefaultLogger.Infof("No ACME-DNS account found for domain %s, registering new account...", domain)
+				newAccount, err := RegisterNewAccount(cfg, store, domain)
+				if err != nil {
+					return false, fmt.Errorf("failed to register ACME-DNS account for domain %s: %w", domain, err)
+				}
+
+				// Save the updated account store immediately
+				if err := store.SaveAccounts(); err != nil {
+					return false, fmt.Errorf("failed to save ACME-DNS accounts: %w", err)
+				}
+
+				domainsNeedingSetup = append(domainsNeedingSetup, domain)
+				challengeDomain := "_acme-challenge." + GetBaseDomain(domain)
+				cnameInstructions = append(cnameInstructions, fmt.Sprintf("    %s. IN CNAME %s.", challengeDomain, newAccount.FullDomain))
+				needsDNSSetup = true
+			}
+		}
+	}
+
+	// Second pass: Check CNAME records for all domains
+	for _, domain := range domains {
+		baseDomain := GetBaseDomain(domain)
+		account, exists := store.GetAccount(baseDomain)
+		if !exists {
+			// Try wildcard version
+			wildcardDomain := "*." + baseDomain
+			account, exists = store.GetAccount(wildcardDomain)
+		}
+
+		if exists {
+			// Create resolver based on config
+			var resolver DNSResolver
+			if cfg.DnsResolver != "" {
+				// Use custom DNS resolver with specified IP
+				nsAddr := cfg.DnsResolver
+				if !strings.Contains(nsAddr, ":") {
+					nsAddr += ":53"
+				}
+				resolver = &DefaultDNSResolver{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+							d := net.Dialer{
+								Timeout: time.Second * 10,
+							}
+							return d.DialContext(ctx, network, nsAddr)
+						},
+					},
+				}
+			} else {
+				// Use system default resolver
+				resolver = &DefaultDNSResolver{
+					Resolver: net.DefaultResolver,
+				}
+			}
+
+			// Check CNAME silently (no logging)
+			challengeDomain := "_acme-challenge." + GetBaseDomain(domain)
+			expectedTarget := strings.TrimSuffix(account.FullDomain, ".")
+
+			isValid, err := VerifyWithResolver(resolver, challengeDomain, expectedTarget)
+			if err != nil {
+				return false, fmt.Errorf("DNS verification failed for %s: %w", domain, err)
+			}
+
+			if !isValid {
+				if !contains(domainsNeedingSetup, domain) {
+					domainsNeedingSetup = append(domainsNeedingSetup, domain)
+					cnameInstructions = append(cnameInstructions, fmt.Sprintf("    %s. IN CNAME %s.", challengeDomain, account.FullDomain))
+				}
+				needsDNSSetup = true
+			}
+		}
+	}
+
+	// If DNS setup is needed, print instructions once for all domains
+	// Use Warn level so it shows even in quiet mode (these are required actions)
+	if needsDNSSetup {
+		DefaultLogger.Warn("")
+		DefaultLogger.Warn("===== REQUIRED DNS CHANGES =====")
+		DefaultLogger.Warn("Add the following CNAME record(s) to your DNS:")
+		DefaultLogger.Warn("")
+		for _, instruction := range cnameInstructions {
+			DefaultLogger.Warnf("%s", instruction)
+		}
+		DefaultLogger.Warn("")
+		DefaultLogger.Warn("=================================")
+		DefaultLogger.Warn("")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// contains checks if a string is in a slice
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // RunLego performs the certificate obtain or renew operation.
 // Accepts config, account store, action, the certificate name, the domains list, and optional key type.
 // Exported function
 func RunLego(cfg *Config, store *accountStore, action string, certName string, domainsToProcess []string, keyType string) error {
-	DefaultLogger.Info("Initializing Lego client...")
-
 	// Validate domainsToProcess ische not empty (should be caught by main, but good practice)
 	if len(domainsToProcess) == 0 {
 		return fmt.Errorf("RunLego called with empty domains list")
 	}
+
+	// Pre-check ACME-DNS setup for all domains BEFORE initializing Lego
+	if action == "init" {
+		ready, err := PreCheckAcmeDNS(cfg, store, domainsToProcess)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			// DNS setup instructions were already shown, just return the special error
+			return ErrDNSSetupNeeded
+		}
+	}
+
+	DefaultLogger.Info("Initializing Lego client...")
 
 	user, userErr := createOrLoadUser(cfg)
 	if userErr != nil {
@@ -164,32 +305,9 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	// Perform the requested action
 	switch action {
 	case "init":
-		DefaultLogger.Infof("Requesting new certificate for domains: %v", domainsToProcess) // Use domainsToProcess
+		DefaultLogger.Infof("Requesting new certificate for domains: %v", domainsToProcess)
 
-		// Verify CNAME records are set up before attempting certificate request
-		// This will show helpful DNS setup instructions if CNAMEs are missing
-		for _, domain := range domainsToProcess {
-			baseDomain := GetBaseDomain(domain)
-			account, exists := store.GetAccount(baseDomain)
-			if !exists {
-				// Try wildcard version
-				wildcardDomain := "*." + baseDomain
-				account, exists = store.GetAccount(wildcardDomain)
-				if !exists {
-					return fmt.Errorf("no ACME DNS account found for domain %s", domain)
-				}
-			}
-
-			// This will automatically display DNS setup instructions if CNAME is missing
-			cnameValid, err := VerifyCnameRecord(cfg, domain, account.FullDomain)
-			if err != nil {
-				return fmt.Errorf("DNS verification failed for %s: %w", domain, err)
-			}
-			if !cnameValid {
-				return fmt.Errorf("DNS setup required: CNAME record missing for %s", domain)
-			}
-		}
-
+		// ACME-DNS setup was already verified in PreCheckAcmeDNS, so we can proceed directly
 		request := certificate.ObtainRequest{
 			Domains: domainsToProcess, // Use domainsToProcess
 			Bundle:  true,             // Get certificate chain

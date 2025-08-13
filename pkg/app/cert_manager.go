@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -235,6 +236,11 @@ func (cm *CertificateManager) initCertificate(ctx context.Context, req CertReque
 	// Call the manager's RunLego function to obtain the certificate
 	err := cm.legoRunner(cm.config, cm.accountStore, "init", req.Name, req.Domains, req.KeyType)
 	if err != nil {
+		// Check if this is just DNS setup needed (not really an error)
+		if errors.Is(err, manager.ErrDNSSetupNeeded) {
+			// DNS setup instructions were already shown, this is a normal exit
+			return err // Return the error as-is to bubble up
+		}
 		return fmt.Errorf("failed to initialize certificate %s: %w", req.Name, err)
 	}
 

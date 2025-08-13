@@ -118,14 +118,14 @@ func RegisterNewAccountWithDeps(cfg *Config, store *accountStore, domain string,
 	// (baseDomain is already defined at the top of the function)
 	if domain != baseDomain {
 		store.SetAccount(baseDomain, newAccount)
-		logger.Infof("Also associating account with base domain %s", baseDomain)
+		logger.Debugf("Also associating account with base domain %s", baseDomain)
 	}
 
 	// If this is a base domain, also store for the wildcard version
 	// (wildcardDomain is already defined at the top of the function)
 	if domain != wildcardDomain {
 		store.SetAccount(wildcardDomain, newAccount)
-		logger.Infof("Also associating account with wildcard domain %s", wildcardDomain)
+		logger.Debugf("Also associating account with wildcard domain %s", wildcardDomain)
 	}
 
 	// Save the updated account store file immediately
@@ -137,11 +137,8 @@ func RegisterNewAccountWithDeps(cfg *Config, store *accountStore, domain string,
 		return nil, fmt.Errorf("saving account store after registration: %w", saveErr)
 	}
 
-	logger.Infof("Successfully registered %s. Account details saved to %s.", domain, store.filePath)
-
-	// Show helpful CNAME setup instructions for the newly registered account
-	challengeDomain := GetChallengeSubdomain(baseDomain)
-	PrintCnameInstructions(challengeDomain, newAccount.FullDomain, domain)
+	// Don't print the file path or CNAME instructions here - PreCheckAcmeDNS will handle that
+	logger.Debugf("Successfully registered %s. Account details saved.", domain)
 
 	return &newAccount, nil
 }

@@ -60,8 +60,11 @@ func NewLogger(w io.Writer, level LogLevel) *Logger {
 		slogLevel = slog.LevelInfo
 	case LogLevelWarn:
 		slogLevel = slog.LevelWarn
-	case LogLevelError, LogLevelQuiet:
+	case LogLevelError:
 		slogLevel = slog.LevelError
+	case LogLevelQuiet:
+		// In quiet mode, show warnings and errors (warnings are for required actions)
+		slogLevel = slog.LevelWarn
 	default:
 		slogLevel = slog.LevelInfo
 	}
@@ -89,11 +92,14 @@ func (l *Logger) SetLevel(level LogLevel) {
 	case LogLevelDebug:
 		slogLevel = slog.LevelDebug
 	case LogLevelInfo:
-		slogLevel = slog.LevelWarn
+		slogLevel = slog.LevelInfo
 	case LogLevelWarn:
 		slogLevel = slog.LevelWarn
-	case LogLevelError, LogLevelQuiet:
+	case LogLevelError:
 		slogLevel = slog.LevelError
+	case LogLevelQuiet:
+		// In quiet mode, show warnings and errors (warnings are for required actions)
+		slogLevel = slog.LevelWarn
 	default:
 		slogLevel = slog.LevelInfo
 	}
@@ -108,62 +114,54 @@ func (l *Logger) SetLevel(level LogLevel) {
 
 // Debug logs a debug message
 func (l *Logger) Debug(msg string, args ...interface{}) {
-	if l.level <= LogLevelDebug {
-		l.slogger.Debug(msg, convertArgsToAttrs(args)...)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	l.slogger.Debug(msg, convertArgsToAttrs(args)...)
 }
 
 // Info logs an info message
 func (l *Logger) Info(msg string, args ...interface{}) {
-	if l.level <= LogLevelInfo {
-		l.slogger.Info(msg, convertArgsToAttrs(args)...)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	l.slogger.Info(msg, convertArgsToAttrs(args)...)
 }
 
 // Warn logs a warning message
 func (l *Logger) Warn(msg string, args ...interface{}) {
-	if l.level <= LogLevelWarn {
-		l.slogger.Warn(msg, convertArgsToAttrs(args)...)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	l.slogger.Warn(msg, convertArgsToAttrs(args)...)
 }
 
 // Error logs an error message
 func (l *Logger) Error(msg string, args ...interface{}) {
-	if l.level <= LogLevelError {
-		l.slogger.Error(msg, convertArgsToAttrs(args)...)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	l.slogger.Error(msg, convertArgsToAttrs(args)...)
 }
 
 // Debugf logs a formatted debug message
 func (l *Logger) Debugf(format string, args ...interface{}) {
-	if l.level <= LogLevelDebug {
-		msg := fmt.Sprintf(format, args...)
-		l.slogger.Debug(msg)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	msg := fmt.Sprintf(format, args...)
+	l.slogger.Debug(msg)
 }
 
 // Infof logs a formatted info message
 func (l *Logger) Infof(format string, args ...interface{}) {
-	if l.level <= LogLevelInfo {
-		msg := fmt.Sprintf(format, args...)
-		l.slogger.Info(msg)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	msg := fmt.Sprintf(format, args...)
+	l.slogger.Info(msg)
 }
 
 // Warnf logs a formatted warning message
 func (l *Logger) Warnf(format string, args ...interface{}) {
-	if l.level <= LogLevelWarn {
-		msg := fmt.Sprintf(format, args...)
-		l.slogger.Warn(msg)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	msg := fmt.Sprintf(format, args...)
+	l.slogger.Warn(msg)
 }
 
 // Errorf logs a formatted error message
 func (l *Logger) Errorf(format string, args ...interface{}) {
-	if l.level <= LogLevelError {
-		msg := fmt.Sprintf(format, args...)
-		l.slogger.Error(msg)
-	}
+	// Let slog handle the level filtering - it already knows the configured level
+	msg := fmt.Sprintf(format, args...)
+	l.slogger.Error(msg)
 }
 
 // Importantf logs a formatted important message that is always shown regardless of log level
@@ -261,14 +259,14 @@ const (
 // and can use colors and emojis
 type SimpleHandler struct {
 	w         io.Writer
-	level     slog.Leveler
+	level     slog.Level
 	useColors bool
 	useEmoji  bool
 }
 
 // Enabled implements slog.Handler.
 func (h *SimpleHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.level.Level()
+	return level >= h.level
 }
 
 // Handle implements slog.Handler.
@@ -351,8 +349,11 @@ func NewColorfulLogger(w io.Writer, level LogLevel, useColors, useEmoji bool) *L
 		slogLevel = slog.LevelInfo
 	case LogLevelWarn:
 		slogLevel = slog.LevelWarn
-	case LogLevelError, LogLevelQuiet:
+	case LogLevelError:
 		slogLevel = slog.LevelError
+	case LogLevelQuiet:
+		// In quiet mode, show warnings and errors (warnings are for required actions)
+		slogLevel = slog.LevelWarn
 	default:
 		slogLevel = slog.LevelInfo
 	}

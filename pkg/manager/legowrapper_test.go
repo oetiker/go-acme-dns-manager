@@ -248,6 +248,142 @@ func findInString(s, substr string) bool {
 	return false
 }
 
+// TestRunLego_DNSVerificationFailure tests DNS verification before certificate requests
+func TestRunLego_DNSVerificationFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Email:              "test@valid-domain.org",
+		AcmeServer:         "https://acme-staging-v02.api.letsencrypt.org/directory",
+		CertStoragePath:    tmpDir,
+		AcmeDnsServer:     "https://acme-dns.example.com",
+		ChallengeTimeout:  10 * time.Minute,
+		HTTPTimeout:       30 * time.Second,
+		DnsResolver:       "non.existent.resolver:53", // This will cause DNS verification to fail
+	}
+
+	store, err := NewAccountStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("Failed to create account store: %v", err)
+	}
+
+	// Add a test account for the domain
+	testAccount := AcmeDnsAccount{
+		Username:   "test-username",
+		Password:   "test-password",
+		FullDomain: "test-subdomain.acmedns.example.com",
+		SubDomain:  "test-subdomain",
+	}
+	store.SetAccount("example.org", testAccount)
+
+	// Test that RunLego fails early due to DNS verification failure
+	// This should fail before any ACME operations with a clear DNS setup message
+	err = RunLego(cfg, store, "init", "test-cert", []string{"example.org"}, "rsa2048")
+
+	if err == nil {
+		t.Fatal("Expected error due to DNS verification failure")
+	}
+
+	// Should fail with DNS verification error, not ACME error
+	if !containsString(err.Error(), "DNS verification failed") &&
+	   !containsString(err.Error(), "DNS setup required") {
+		t.Errorf("Expected DNS verification error, got: %s", err.Error())
+	}
+
+	// Should mention the domain that failed
+	if !containsString(err.Error(), "example.org") {
+		t.Errorf("Expected error to mention domain 'example.org', got: %s", err.Error())
+	}
+}
+
+// TestRunLego_NoAccountFound tests the case where no ACME DNS account exists
+// The function should now auto-register a new account and then fail on DNS verification
+func TestRunLego_NoAccountFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Email:              "test@valid-domain.org",
+		AcmeServer:         "https://acme-staging-v02.api.letsencrypt.org/directory",
+		CertStoragePath:    tmpDir,
+		AcmeDnsServer:     "https://acme-dns.example.com",
+		ChallengeTimeout:  10 * time.Minute,
+		HTTPTimeout:       30 * time.Second,
+	}
+
+	store, err := NewAccountStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("Failed to create account store: %v", err)
+	}
+
+	// Don't add any accounts to the store
+
+	// Test that RunLego now tries to auto-register but fails due to network
+	// (can't actually connect to https://acme-dns.example.com)
+	err = RunLego(cfg, store, "init", "test-cert", []string{"example.org"}, "rsa2048")
+
+	if err == nil {
+		t.Fatal("Expected error due to ACME DNS registration or DNS verification failure")
+	}
+
+	// Should now fail with registration error (can't connect to acme-dns server)
+	// OR DNS setup required error (if registration somehow succeeded)
+	if !containsString(err.Error(), "failed to register ACME-DNS account") &&
+	   !containsString(err.Error(), "DNS setup required") &&
+	   !containsString(err.Error(), "DNS verification failed") {
+		t.Errorf("Expected registration or DNS verification error, got: %s", err.Error())
+	}
+
+	// Should still mention the domain
+	if !containsString(err.Error(), "example.org") {
+		t.Errorf("Expected error to mention domain 'example.org', got: %s", err.Error())
+	}
+}
+
+// TestRunLego_WildcardAccountFallback tests wildcard account fallback
+func TestRunLego_WildcardAccountFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Email:              "test@valid-domain.org",
+		AcmeServer:         "https://acme-staging-v02.api.letsencrypt.org/directory",
+		CertStoragePath:    tmpDir,
+		AcmeDnsServer:     "https://acme-dns.example.com",
+		ChallengeTimeout:  10 * time.Minute,
+		HTTPTimeout:       30 * time.Second,
+		DnsResolver:       "non.existent.resolver:53", // This will cause DNS verification to fail
+	}
+
+	store, err := NewAccountStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("Failed to create account store: %v", err)
+	}
+
+	// Add a wildcard account but not a base domain account
+	wildcardAccount := AcmeDnsAccount{
+		Username:   "wildcard-username",
+		Password:   "wildcard-password",
+		FullDomain: "wildcard-subdomain.acmedns.example.com",
+		SubDomain:  "wildcard-subdomain",
+	}
+	store.SetAccount("*.example.org", wildcardAccount)
+
+	// Test that RunLego finds the wildcard account for base domain
+	// This should fail at DNS verification (not account lookup)
+	err = RunLego(cfg, store, "init", "test-cert", []string{"example.org"}, "rsa2048")
+
+	if err == nil {
+		t.Fatal("Expected error due to DNS verification failure")
+	}
+
+	// Should fail with DNS verification error (meaning it found the wildcard account)
+	if !containsString(err.Error(), "DNS verification failed") &&
+	   !containsString(err.Error(), "DNS setup required") {
+		t.Errorf("Expected DNS verification error (indicating account was found), got: %s", err.Error())
+	}
+
+	// Should NOT fail with "no ACME DNS account found"
+	if containsString(err.Error(), "no ACME DNS account found") {
+		t.Errorf("Should have found wildcard account, but got: %s", err.Error())
+	}
+}
+
 // Integration test with mock servers (when available)
 func TestRunLego_Integration(t *testing.T) {
 	// Skip integration test if not explicitly enabled

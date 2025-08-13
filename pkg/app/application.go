@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -365,13 +366,13 @@ func (app *Application) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// Display version for normal operation
-	fmt.Printf("go-acme-dns-manager %s\n", app.config.Version)
-
-	// Setup logger
+	// Setup logger first so we can use it for version output
 	if err := app.SetupLogger(); err != nil {
 		return fmt.Errorf("setting up logger: %w", err)
 	}
+
+	// Display version at info level (hidden in quiet mode)
+	app.logger.Infof("go-acme-dns-manager %s", app.config.Version)
 
 	app.logger.Debugf("Starting application with request ID: %s", common.GetRequestID(ctx))
 
@@ -406,20 +407,34 @@ func (app *Application) Run(ctx context.Context) error {
 	}
 
 	// Process certificates based on mode
+	var processingErr error
 	if app.config.AutoMode {
 		app.logger.Info("Starting automatic certificate processing...")
-		if err := certManager.ProcessAutoMode(ctx); err != nil {
-			return fmt.Errorf("processing certificates in auto mode: %w", err)
-		}
+		processingErr = certManager.ProcessAutoMode(ctx)
 	} else {
 		app.logger.Info("Starting manual certificate processing...")
 		args := flag.Args()
 		if len(args) == 0 {
 			return fmt.Errorf("no certificate requests provided in manual mode")
 		}
-		if err := certManager.ProcessManualMode(ctx, args); err != nil {
-			return fmt.Errorf("processing certificates in manual mode: %w", err)
+		processingErr = certManager.ProcessManualMode(ctx, args)
+	}
+
+	// Handle processing result
+	if processingErr != nil {
+		// Check if this is just DNS setup needed (not really an error)
+		if errors.Is(processingErr, manager.ErrDNSSetupNeeded) {
+			// DNS instructions were already shown, exit cleanly
+			// Use Warn level so it shows even in quiet mode
+			app.logger.Warn("Please configure the DNS records as shown above and run the command again.")
+			app.Shutdown() // Signal that we're done so WaitForShutdown doesn't hang
+			return nil
 		}
+		mode := "auto"
+		if !app.config.AutoMode {
+			mode = "manual"
+		}
+		return fmt.Errorf("processing certificates in %s mode: %w", mode, processingErr)
 	}
 
 	app.logger.Info("Certificate processing completed successfully")

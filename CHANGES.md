@@ -8,10 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **Enhanced Test Coverage**: Added comprehensive tests for DNS verification before certificate requests
+  - Tests verify that missing CNAME records are detected early with helpful error messages
+  - Tests ensure wildcard account fallback logic works correctly
+  - Tests verify proper error handling when no ACME DNS accounts exist
+  - All tests use realistic scenarios that mirror production usage patterns
 
 ### Changed
+- **Improved certificate initialization flow**: Restructured to check ACME-DNS setup before Let's Encrypt initialization
+  - ACME-DNS account registration and CNAME verification now happen first, before contacting Let's Encrypt
+  - Prevents unnecessary Let's Encrypt API calls when DNS setup is incomplete
+  - More logical flow: DNS infrastructure setup → ACME account setup → Certificate request
 
 ### Fixed
+- **Automatic ACME-DNS account registration**: Fixed missing functionality for auto-registering ACME-DNS accounts
+  - Application now automatically registers ACME-DNS accounts when they don't exist (as documented in README)
+  - Batch processes all domains needing registration and shows consolidated DNS instructions
+  - No longer fails with "no ACME DNS account found for domain" error
+- **Application hanging after DNS setup**: Fixed issue where application would hang after showing DNS instructions
+  - Added proper shutdown signaling when DNS setup is needed
+  - Application now exits cleanly after displaying DNS setup instructions
+- **Quiet mode not showing warnings**: Fixed critical logger bug preventing warnings in quiet mode
+  - Removed incorrect level checks in Warn/Warnf methods that prevented warnings from displaying
+  - LogLevelQuiet (4) is now correctly mapped to slog.LevelWarn for proper filtering
+  - DNS setup instructions and other important warnings now properly show in quiet mode
+- **Redundant logging**: Reduced excessive logging and consolidated output
+  - DNS setup instructions are now shown once for all domains instead of per-domain
+  - Reduced verbosity of ACME-DNS account association messages to Debug level
+  - Version information now uses Info level (hidden in quiet mode as intended)
 
 ## 0.7.4 - 2025-08-01
 ### Fixed
