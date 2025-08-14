@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **Architecture Decision Records (ADRs)**: Added ADR documentation to preserve core functionality
+  - ADR-000 documents the critical user workflows that must never break
+  - Establishes clear invariants for both command-line and auto modes
+  - Documents that both modes must support initial creation AND renewal
+  - Creates a framework for documenting future architectural decisions
+- **Workflow Integration Tests**: Added comprehensive tests that validate ADR-000 workflows
+  - Tests verify complete user journeys for both command-line and auto modes
+  - Tests validate initial certificate creation and renewal workflows separately for each mode
+  - Tests verify selective renewal in auto mode (only renews certificates that need it)
+  - Tests use mocked ACME operations to ensure workflows function correctly without external dependencies
 
 ### Changed
 
