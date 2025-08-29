@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.9.0 - 2025-08-29
+### New
 - **Architecture Decision Records (ADRs)**: Added ADR documentation to preserve core functionality
   - ADR-000 documents the critical user workflows that must never break
   - Establishes clear invariants for both command-line and auto modes
