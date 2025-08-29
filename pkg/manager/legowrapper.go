@@ -35,12 +35,21 @@ func RunLegoWithStore(cfg *Config, store interface{}, action string, certName st
 	return RunLego(cfg, accountStore, action, certName, domainsToProcess, keyType)
 }
 
-// PreCheckAcmeDNS ensures all domains have ACME-DNS accounts and valid CNAME records
-// Returns true if all domains are ready, false if DNS setup is needed
-func PreCheckAcmeDNS(cfg *Config, store *accountStore, domains []string) (bool, error) {
-	needsDNSSetup := false
-	domainsNeedingSetup := []string{}
-	cnameInstructions := []string{}
+// PreCheckAcmeDNSWithStore is a wrapper function that accepts interface{} for the store parameter
+// and performs the type assertion internally. This allows external packages to call PreCheckAcmeDNS
+// without needing to import the unexported accountStore type.
+func PreCheckAcmeDNSWithStore(cfg *Config, store interface{}, domains []string) ([]DNSSetupInfo, error) {
+	accountStore, ok := store.(*accountStore)
+	if !ok {
+		return nil, fmt.Errorf("invalid store type: expected *accountStore, got %T", store)
+	}
+	return PreCheckAcmeDNS(cfg, accountStore, domains)
+}
+
+// PreCheckAcmeDNSWithResolver is a version that allows injection of a DNS resolver for testing
+func PreCheckAcmeDNSWithResolver(cfg *Config, store *accountStore, domains []string, resolver DNSResolver) ([]DNSSetupInfo, error) {
+	// Use a map to avoid duplicate CNAME instructions
+	cnameMap := make(map[string]string)
 
 	// First pass: Register any missing ACME-DNS accounts
 	for _, domain := range domains {
@@ -55,18 +64,97 @@ func PreCheckAcmeDNS(cfg *Config, store *accountStore, domains []string) (bool, 
 				DefaultLogger.Infof("No ACME-DNS account found for domain %s, registering new account...", domain)
 				newAccount, err := RegisterNewAccount(cfg, store, domain)
 				if err != nil {
-					return false, fmt.Errorf("failed to register ACME-DNS account for domain %s: %w", domain, err)
+					return nil, fmt.Errorf("failed to register ACME-DNS account for domain %s: %w", domain, err)
 				}
 
 				// Save the updated account store immediately
 				if err := store.SaveAccounts(); err != nil {
-					return false, fmt.Errorf("failed to save ACME-DNS accounts: %w", err)
+					return nil, fmt.Errorf("failed to save ACME-DNS accounts: %w", err)
 				}
 
-				domainsNeedingSetup = append(domainsNeedingSetup, domain)
 				challengeDomain := "_acme-challenge." + GetBaseDomain(domain)
-				cnameInstructions = append(cnameInstructions, fmt.Sprintf("    %s. IN CNAME %s.", challengeDomain, newAccount.FullDomain))
-				needsDNSSetup = true
+				cnameMap[challengeDomain] = newAccount.FullDomain
+			}
+		}
+	}
+
+	// Second pass: Check CNAME records for all domains using provided resolver
+	for _, domain := range domains {
+		baseDomain := GetBaseDomain(domain)
+		account, exists := store.GetAccount(baseDomain)
+		if !exists {
+			// Try wildcard version
+			wildcardDomain := "*." + baseDomain
+			account, exists = store.GetAccount(wildcardDomain)
+		}
+
+		if exists {
+			// Check CNAME silently (no logging)
+			challengeDomain := "_acme-challenge." + GetBaseDomain(domain)
+			expectedTarget := strings.TrimSuffix(account.FullDomain, ".")
+
+			isValid, err := VerifyWithResolver(resolver, challengeDomain, expectedTarget)
+			if err != nil {
+				return nil, fmt.Errorf("DNS verification failed for %s: %w", domain, err)
+			}
+
+			if !isValid {
+				// Add to map (automatically handles duplicates)
+				cnameMap[challengeDomain] = account.FullDomain
+			}
+		}
+	}
+
+	// Convert map to slice of DNSSetupInfo if any setup is needed
+	if len(cnameMap) > 0 {
+		var setupInfo []DNSSetupInfo
+		for challenge, target := range cnameMap {
+			setupInfo = append(setupInfo, DNSSetupInfo{
+				ChallengeDomain: challenge,
+				TargetDomain:    target,
+			})
+		}
+		return setupInfo, nil
+	}
+
+	return nil, nil
+}
+
+// DNSSetupInfo contains information about required DNS setup
+type DNSSetupInfo struct {
+	ChallengeDomain string
+	TargetDomain    string
+}
+
+// PreCheckAcmeDNS ensures all domains have ACME-DNS accounts and valid CNAME records
+// Returns DNS setup information if setup is needed, nil if all domains are ready
+func PreCheckAcmeDNS(cfg *Config, store *accountStore, domains []string) ([]DNSSetupInfo, error) {
+	// Use a map to avoid duplicate CNAME instructions
+	cnameMap := make(map[string]string)
+
+	// First pass: Register any missing ACME-DNS accounts
+	for _, domain := range domains {
+		baseDomain := GetBaseDomain(domain)
+		_, exists := store.GetAccount(baseDomain)
+		if !exists {
+			// Try wildcard version
+			wildcardDomain := "*." + baseDomain
+			_, exists = store.GetAccount(wildcardDomain)
+			if !exists {
+				// No account exists, register a new one with acme-dns
+				DefaultLogger.Infof("No ACME-DNS account found for domain %s, registering new account...", domain)
+				newAccount, err := RegisterNewAccount(cfg, store, domain)
+				if err != nil {
+					return nil, fmt.Errorf("failed to register ACME-DNS account for domain %s: %w", domain, err)
+				}
+
+				// Save the updated account store immediately
+				if err := store.SaveAccounts(); err != nil {
+					return nil, fmt.Errorf("failed to save ACME-DNS accounts: %w", err)
+				}
+
+				challengeDomain := "_acme-challenge." + GetBaseDomain(domain)
+				cnameMap[challengeDomain] = newAccount.FullDomain
 			}
 		}
 	}
@@ -114,36 +202,57 @@ func PreCheckAcmeDNS(cfg *Config, store *accountStore, domains []string) (bool, 
 
 			isValid, err := VerifyWithResolver(resolver, challengeDomain, expectedTarget)
 			if err != nil {
-				return false, fmt.Errorf("DNS verification failed for %s: %w", domain, err)
+				return nil, fmt.Errorf("DNS verification failed for %s: %w", domain, err)
 			}
 
 			if !isValid {
-				if !contains(domainsNeedingSetup, domain) {
-					domainsNeedingSetup = append(domainsNeedingSetup, domain)
-					cnameInstructions = append(cnameInstructions, fmt.Sprintf("    %s. IN CNAME %s.", challengeDomain, account.FullDomain))
-				}
-				needsDNSSetup = true
+				// Add to map (automatically handles duplicates)
+				cnameMap[challengeDomain] = account.FullDomain
 			}
 		}
 	}
 
-	// If DNS setup is needed, print instructions once for all domains
-	// Use Warn level so it shows even in quiet mode (these are required actions)
-	if needsDNSSetup {
-		DefaultLogger.Warn("")
-		DefaultLogger.Warn("===== REQUIRED DNS CHANGES =====")
-		DefaultLogger.Warn("Add the following CNAME record(s) to your DNS:")
-		DefaultLogger.Warn("")
-		for _, instruction := range cnameInstructions {
-			DefaultLogger.Warnf("%s", instruction)
+	// Convert map to slice of DNSSetupInfo if any setup is needed
+	if len(cnameMap) > 0 {
+		var setupInfo []DNSSetupInfo
+		for challenge, target := range cnameMap {
+			setupInfo = append(setupInfo, DNSSetupInfo{
+				ChallengeDomain: challenge,
+				TargetDomain:    target,
+			})
 		}
-		DefaultLogger.Warn("")
-		DefaultLogger.Warn("=================================")
-		DefaultLogger.Warn("")
-		return false, nil
+		return setupInfo, nil
 	}
 
-	return true, nil
+	return nil, nil
+}
+
+// DisplayDNSInstructions shows DNS setup instructions in a sorted, deduplicated format
+func DisplayDNSInstructions(setupInfo []DNSSetupInfo) {
+	// Sort by challenge domain for consistent output
+	sortedInfo := make([]DNSSetupInfo, len(setupInfo))
+	copy(sortedInfo, setupInfo)
+
+	// Simple bubble sort for clarity (small lists)
+	for i := 0; i < len(sortedInfo)-1; i++ {
+		for j := 0; j < len(sortedInfo)-i-1; j++ {
+			if sortedInfo[j].ChallengeDomain > sortedInfo[j+1].ChallengeDomain {
+				sortedInfo[j], sortedInfo[j+1] = sortedInfo[j+1], sortedInfo[j]
+			}
+		}
+	}
+
+	// Use Warn level so it shows even in quiet mode (these are required actions)
+	DefaultLogger.Warn("")
+	DefaultLogger.Warn("===== REQUIRED DNS CHANGES =====")
+	DefaultLogger.Warn("Add the following CNAME record(s) to your DNS:")
+	DefaultLogger.Warn("")
+	for _, info := range sortedInfo {
+		DefaultLogger.Warnf("    %s. IN CNAME %s.", info.ChallengeDomain, info.TargetDomain)
+	}
+	DefaultLogger.Warn("")
+	DefaultLogger.Warn("=================================")
+	DefaultLogger.Warn("")
 }
 
 // contains checks if a string is in a slice
@@ -167,12 +276,13 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 
 	// Pre-check ACME-DNS setup for all domains BEFORE initializing Lego
 	if action == "init" {
-		ready, err := PreCheckAcmeDNS(cfg, store, domainsToProcess)
+		setupInfo, err := PreCheckAcmeDNS(cfg, store, domainsToProcess)
 		if err != nil {
 			return err
 		}
-		if !ready {
-			// DNS setup instructions were already shown, just return the special error
+		if setupInfo != nil {
+			// DNS setup is needed, display instructions and return
+			DisplayDNSInstructions(setupInfo)
 			return ErrDNSSetupNeeded
 		}
 	}

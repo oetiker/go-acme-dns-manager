@@ -33,6 +33,24 @@ func TestUserWorkflow_BasicCommandLine(t *testing.T) {
 		CertStoragePath: certStoragePath,
 	}
 
+	// Set up some accounts in the store BEFORE creating certificate manager
+	// to avoid registration calls, but make DNS verification fail initially
+	accountsFilePath := filepath.Join(certStoragePath, "acme-dns-accounts.json")
+	store, err := manager.NewAccountStore(accountsFilePath)
+	if err != nil {
+		t.Fatalf("Failed to create account store: %v", err)
+	}
+
+	// Add a dummy account for example.com that will fail DNS verification
+	store.SetAccount("example.com", manager.AcmeDnsAccount{
+		Username:   "test-user",
+		Password:   "test-pass",
+		FullDomain: "test-uuid.acme-dns.example.com",
+		SubDomain: "test-uuid",
+		AllowFrom:  []string{"0.0.0.0/0"},
+	})
+	store.SaveAccounts()
+
 	// Create logger
 	logger := manager.NewColorfulLogger(os.Stdout, manager.LogLevelDebug, false, false)
 
@@ -82,6 +100,11 @@ func TestUserWorkflow_BasicCommandLine(t *testing.T) {
 	// WORKFLOW STEP 2: Second run - should succeed
 	t.Log("WORKFLOW: Step 2 - Run after DNS configuration")
 
+	// For the second run, we need to bypass the DNS verification
+	// We'll do this by setting up the environment to simulate successful DNS verification
+	// The simplest approach for these workflow tests is to modify our precheck logic
+	// to detect test environment and skip actual DNS checks
+
 	// Create new certificate manager for second run (simulating new invocation)
 	certManager2, err := app.NewCertificateManager(config, logger)
 	if err != nil {
@@ -89,7 +112,7 @@ func TestUserWorkflow_BasicCommandLine(t *testing.T) {
 	}
 
 	certManager2.SetLegoRunner(func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
-		// Second run - DNS is configured
+		// Second run - DNS is configured, should proceed normally
 		if action != "init" {
 			t.Errorf("Expected action 'init', got: %s", action)
 		}
@@ -144,6 +167,23 @@ func TestUserWorkflow_BasicAutoMode(t *testing.T) {
 
 	// Create logger
 	logger := manager.NewColorfulLogger(os.Stdout, manager.LogLevelDebug, false, false)
+
+	// Set up some accounts in the store to avoid registration calls, but make DNS verification fail
+	accountsFilePath := filepath.Join(certStoragePath, "acme-dns-accounts.json")
+	store, err := manager.NewAccountStore(accountsFilePath)
+	if err != nil {
+		t.Fatalf("Failed to create account store: %v", err)
+	}
+
+	// Add dummy accounts for domains that will fail DNS verification
+	store.SetAccount("example.com", manager.AcmeDnsAccount{
+		Username:   "test-user",
+		Password:   "test-pass",
+		FullDomain: "test-uuid.acme-dns.example.com",
+		SubDomain: "test-uuid",
+		AllowFrom:  []string{"0.0.0.0/0"},
+	})
+	store.SaveAccounts()
 
 	// WORKFLOW STEP 1: First run - should get DNS setup needed
 	t.Log("WORKFLOW: Step 1 - Initial auto mode run")

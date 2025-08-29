@@ -137,12 +137,61 @@ func (cm *CertificateManager) parseAutoRequests() []CertRequest {
 	return requests
 }
 
+// preCheckAllRequests performs batch DNS pre-checking for all certificates that need initialization
+func (cm *CertificateManager) preCheckAllRequests(ctx context.Context, requests []CertRequest) error {
+	// Collect all domains from certificates that need initialization
+	var allDomains []string
+	renewalThreshold := cm.config.GetRenewalThreshold()
+
+	for _, req := range requests {
+		// Determine if this certificate needs initialization
+		action, err := cm.determineAction(req, renewalThreshold)
+		if err != nil {
+			return fmt.Errorf("determining action for certificate %s: %w", req.Name, err)
+		}
+
+		// Only collect domains from certificates that need initialization
+		if action == "init" {
+			cm.logger.Debugf("Certificate %s needs initialization, adding domains %v to pre-check", req.Name, req.Domains)
+			allDomains = append(allDomains, req.Domains...)
+		}
+	}
+
+	// If no domains need initialization, we're done
+	if len(allDomains) == 0 {
+		cm.logger.Debug("No certificates need initialization, skipping batch pre-check")
+		return nil
+	}
+
+	cm.logger.Debugf("Performing batch DNS pre-check for %d domains from initialization-required certificates", len(allDomains))
+
+	// Use a wrapper function to handle the interface{} type assertion, similar to RunLegoWithStore
+	setupInfo, err := manager.PreCheckAcmeDNSWithStore(cm.config, cm.accountStore, allDomains)
+	if err != nil {
+		return fmt.Errorf("batch DNS pre-check failed: %w", err)
+	}
+
+	// If any DNS setup is needed, display all instructions and exit
+	if setupInfo != nil {
+		manager.DisplayDNSInstructions(setupInfo)
+		return manager.ErrDNSSetupNeeded
+	}
+
+	cm.logger.Debug("Batch DNS pre-check passed, all domains are ready")
+	return nil
+}
+
 // processRequests processes a list of certificate requests
 func (cm *CertificateManager) processRequests(ctx context.Context, requests []CertRequest) error {
 	cm.logger.Debugf("Performing pre-checks for %d requested certificates...", len(requests))
 
-	renewalThreshold := cm.config.GetRenewalThreshold()
+	// First, batch pre-check all certificates that need initialization
+	if err := cm.preCheckAllRequests(ctx, requests); err != nil {
+		return err
+	}
 
+	// Now process each certificate normally
+	renewalThreshold := cm.config.GetRenewalThreshold()
 	for _, req := range requests {
 		if err := cm.processRequest(ctx, req, renewalThreshold); err != nil {
 			return fmt.Errorf("processing certificate %s: %w", req.Name, err)

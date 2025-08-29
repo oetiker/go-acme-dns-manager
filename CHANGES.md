@@ -20,8 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tests use mocked ACME operations to ensure workflows function correctly without external dependencies
 
 ### Changed
+- **Batch DNS Processing**: Improved domain processing to collect DNS requirements from ALL certificates before showing instructions
+  - Application now processes all certificates upfront to identify domains needing DNS setup
+  - Shows consolidated DNS instructions for all certificates in one sorted, deduplicated list
+  - Users can configure all required CNAME records in a single session instead of iteratively discovering them
+  - DNS instructions are automatically sorted alphabetically for consistent, readable output
 
 ### Fixed
+- **Sequential Certificate Processing**: Fixed issue where application would stop at first certificate needing DNS setup
+  - Previously, when multiple certificates were defined, the application would show DNS instructions for only the first certificate requiring setup
+  - Users had to run the command multiple times to discover all DNS requirements across all certificates
+  - Now processes all certificates in batch to show complete DNS requirements upfront
+- **Duplicate CNAME Instructions**: Fixed duplicate CNAME records in DNS setup instructions
+  - Certificates with overlapping domains (like wildcard `*.example.com` and base `example.com`) would generate duplicate CNAME instructions
+  - Now uses map-based deduplication to ensure each unique CNAME record appears only once
+  - Maintains proper account sharing between wildcard and base domains as designed
 
 ## 0.8.0 - 2025-08-13
 ### New
