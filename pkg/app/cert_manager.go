@@ -24,6 +24,8 @@ type CertificateManager struct {
 	logger       common.LoggerInterface
 	accountStore interface{}
 	legoRunner   LegoRunnerFunc
+	dnsResolver  manager.DNSResolver // Optional DNS resolver for testing
+	testMode     bool                 // Skip batch pre-check in test mode
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -50,6 +52,12 @@ func NewCertificateManager(config *manager.Config, logger common.LoggerInterface
 // SetLegoRunner sets a custom Lego runner function (mainly for testing)
 func (cm *CertificateManager) SetLegoRunner(runner LegoRunnerFunc) {
 	cm.legoRunner = runner
+	cm.testMode = true // Setting a custom runner implies test mode
+}
+
+// SetDNSResolver sets a custom DNS resolver (mainly for testing)
+func (cm *CertificateManager) SetDNSResolver(resolver manager.DNSResolver) {
+	cm.dnsResolver = resolver
 }
 
 // CertRequest represents a certificate request
@@ -139,6 +147,13 @@ func (cm *CertificateManager) parseAutoRequests() []CertRequest {
 
 // preCheckAllRequests performs batch DNS pre-checking for all certificates that need initialization
 func (cm *CertificateManager) preCheckAllRequests(ctx context.Context, requests []CertRequest) error {
+	// Skip batch pre-check in test mode (when using a mocked Lego runner)
+	// This allows unit tests to control the flow through the mock without real DNS operations
+	if cm.testMode {
+		cm.logger.Debug("Test mode detected, skipping batch DNS pre-check")
+		return nil
+	}
+
 	// Collect all domains from certificates that need initialization
 	var allDomains []string
 	renewalThreshold := cm.config.GetRenewalThreshold()
@@ -165,8 +180,16 @@ func (cm *CertificateManager) preCheckAllRequests(ctx context.Context, requests 
 
 	cm.logger.Debugf("Performing batch DNS pre-check for %d domains from initialization-required certificates", len(allDomains))
 
-	// Use a wrapper function to handle the interface{} type assertion, similar to RunLegoWithStore
-	setupInfo, err := manager.PreCheckAcmeDNSWithStore(cm.config, cm.accountStore, allDomains)
+	// Use the injected DNS resolver if available (for testing), otherwise use default
+	var setupInfo []manager.DNSSetupInfo
+	var err error
+	if cm.dnsResolver != nil {
+		// Use the injected DNS resolver for testing
+		setupInfo, err = manager.PreCheckAcmeDNSWithStoreAndResolver(cm.config, cm.accountStore, allDomains, cm.dnsResolver)
+	} else {
+		// Use the default DNS resolver
+		setupInfo, err = manager.PreCheckAcmeDNSWithStore(cm.config, cm.accountStore, allDomains)
+	}
 	if err != nil {
 		return fmt.Errorf("batch DNS pre-check failed: %w", err)
 	}

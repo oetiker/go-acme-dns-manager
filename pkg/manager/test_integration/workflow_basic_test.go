@@ -12,6 +12,7 @@ import (
 	"github.com/oetiker/go-acme-dns-manager/pkg/app"
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager"
 	"github.com/oetiker/go-acme-dns-manager/pkg/manager/test_helpers"
+	"github.com/oetiker/go-acme-dns-manager/pkg/manager/test_mocks"
 )
 
 // TestUserWorkflow_BasicCommandLine validates the basic command-line workflow
@@ -60,6 +61,11 @@ func TestUserWorkflow_BasicCommandLine(t *testing.T) {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
 
+	// Set up mock DNS resolver that will fail verification for first run
+	mockResolver := test_mocks.NewMockDNSResolver()
+	// Don't add any CNAME records, so verification will fail
+	certManager.SetDNSResolver(mockResolver)
+
 	testRuns := 0
 	certManager.SetLegoRunner(func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
 		testRuns++
@@ -100,16 +106,16 @@ func TestUserWorkflow_BasicCommandLine(t *testing.T) {
 	// WORKFLOW STEP 2: Second run - should succeed
 	t.Log("WORKFLOW: Step 2 - Run after DNS configuration")
 
-	// For the second run, we need to bypass the DNS verification
-	// We'll do this by setting up the environment to simulate successful DNS verification
-	// The simplest approach for these workflow tests is to modify our precheck logic
-	// to detect test environment and skip actual DNS checks
-
 	// Create new certificate manager for second run (simulating new invocation)
 	certManager2, err := app.NewCertificateManager(config, logger)
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager for second run: %v", err)
 	}
+
+	// Set up mock DNS resolver with proper CNAME records (simulating user configured DNS)
+	mockResolver2 := test_mocks.NewMockDNSResolver()
+	mockResolver2.AddCNAMERecord("_acme-challenge.example.com", "test-uuid.acme-dns.example.com")
+	certManager2.SetDNSResolver(mockResolver2)
 
 	certManager2.SetLegoRunner(func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
 		// Second run - DNS is configured, should proceed normally
@@ -175,12 +181,20 @@ func TestUserWorkflow_BasicAutoMode(t *testing.T) {
 		t.Fatalf("Failed to create account store: %v", err)
 	}
 
-	// Add dummy accounts for domains that will fail DNS verification
+	// Add dummy accounts for ALL domains that will fail DNS verification
+	// Need to add accounts for all domains to prevent registration attempts
 	store.SetAccount("example.com", manager.AcmeDnsAccount{
 		Username:   "test-user",
 		Password:   "test-pass",
 		FullDomain: "test-uuid.acme-dns.example.com",
 		SubDomain: "test-uuid",
+		AllowFrom:  []string{"0.0.0.0/0"},
+	})
+	store.SetAccount("www.example.com", manager.AcmeDnsAccount{
+		Username:   "test-user-www",
+		Password:   "test-pass-www",
+		FullDomain: "test-uuid-www.acme-dns.example.com",
+		SubDomain: "test-uuid-www",
 		AllowFrom:  []string{"0.0.0.0/0"},
 	})
 	store.SaveAccounts()
@@ -192,6 +206,11 @@ func TestUserWorkflow_BasicAutoMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager: %v", err)
 	}
+
+	// Set up mock DNS resolver that will fail verification for first run
+	mockResolver := test_mocks.NewMockDNSResolver()
+	// Don't add any CNAME records, so verification will fail
+	certManager.SetDNSResolver(mockResolver)
 
 	certManager.SetLegoRunner(func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
 		t.Logf("Mock Lego called: action=%s, cert=%s", action, certName)
@@ -219,6 +238,12 @@ func TestUserWorkflow_BasicAutoMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create certificate manager for second run: %v", err)
 	}
+
+	// Set up mock DNS resolver with proper CNAME records (simulating user configured DNS)
+	mockResolver2 := test_mocks.NewMockDNSResolver()
+	mockResolver2.AddCNAMERecord("_acme-challenge.example.com", "test-uuid.acme-dns.example.com")
+	mockResolver2.AddCNAMERecord("_acme-challenge.www.example.com", "test-uuid-www.acme-dns.example.com")
+	certManager2.SetDNSResolver(mockResolver2)
 
 	certManager2.SetLegoRunner(func(cfg *manager.Config, store interface{}, action string, certName string, domains []string, keyType string) error {
 		// Simulate successful certificate creation

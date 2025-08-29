@@ -46,6 +46,16 @@ func PreCheckAcmeDNSWithStore(cfg *Config, store interface{}, domains []string) 
 	return PreCheckAcmeDNS(cfg, accountStore, domains)
 }
 
+// PreCheckAcmeDNSWithStoreAndResolver is a wrapper that accepts both store as interface{} and a DNS resolver
+// This allows external packages to inject a custom DNS resolver for testing
+func PreCheckAcmeDNSWithStoreAndResolver(cfg *Config, store interface{}, domains []string, resolver DNSResolver) ([]DNSSetupInfo, error) {
+	accountStore, ok := store.(*accountStore)
+	if !ok {
+		return nil, fmt.Errorf("invalid store type: expected *accountStore, got %T", store)
+	}
+	return PreCheckAcmeDNSWithResolver(cfg, accountStore, domains, resolver)
+}
+
 // PreCheckAcmeDNSWithResolver is a version that allows injection of a DNS resolver for testing
 func PreCheckAcmeDNSWithResolver(cfg *Config, store *accountStore, domains []string, resolver DNSResolver) ([]DNSSetupInfo, error) {
 	// Use a map to avoid duplicate CNAME instructions
