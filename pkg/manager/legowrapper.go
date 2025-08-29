@@ -265,15 +265,6 @@ func DisplayDNSInstructions(setupInfo []DNSSetupInfo) {
 	DefaultLogger.Warn("")
 }
 
-// contains checks if a string is in a slice
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 // RunLego performs the certificate obtain or renew operation.
 // Accepts config, account store, action, the certificate name, the domains list, and optional key type.
