@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 0.9.1 - 2025-09-26
+### Fixed
 - **Certificate renewal with domain changes**: Fixed issue where renewal didn't obtain new certificates when domains were added or removed
   - Renewal now checks ACME-DNS setup for new domains (previously only checked during init)
   - When domains change, uses `Obtain()` to get new certificate instead of `Renew()` which preserves old domains
