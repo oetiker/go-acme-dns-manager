@@ -324,7 +324,7 @@ func createTestCertificateWithDomains(certPath, keyPath string, domains []string
 	if err != nil {
 		return err
 	}
-	defer certOut.Close()
+	defer func() { _ = certOut.Close() }()
 
 	err = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	if err != nil {
@@ -335,7 +335,7 @@ func createTestCertificateWithDomains(certPath, keyPath string, domains []string
 	if err != nil {
 		return err
 	}
-	defer keyOut.Close()
+	defer func() { _ = keyOut.Close() }()
 
 	privKeyDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
@@ -347,6 +347,8 @@ func createTestCertificateWithDomains(certPath, keyPath string, domains []string
 		return err
 	}
 
-	os.Chmod(keyPath, PrivateKeyPermissions)
+	if err := os.Chmod(keyPath, PrivateKeyPermissions); err != nil {
+		return err
+	}
 	return nil
 }

@@ -42,7 +42,7 @@ func TestCertificateConfigChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 
 	// Create certificates directory
 	certsDir := filepath.Join(tempDir, "certificates")
@@ -156,7 +156,7 @@ func createValidCertificate(certPath string, domains []string, daysUntilExpiry i
 	if err != nil {
 		return err
 	}
-	defer certOut.Close()
+	defer func() { _ = certOut.Close() }()
 
 	// Write the certificate in PEM format
 	err = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
@@ -241,7 +241,7 @@ func TestCertificateConfigChangeScenarios(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
-			defer os.RemoveAll(tempDir)
+			t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 
 			// Create certificates directory
 			certsDir := filepath.Join(tempDir, "certificates")
@@ -258,7 +258,7 @@ func TestCertificateConfigChangeScenarios(t *testing.T) {
 
 			// Check if certificate needs renewal
 			renewalThreshold := time.Duration(tc.renewalDays) * 24 * time.Hour
-			needsRenewal, reason, err := manager.CertificateNeedsRenewal(certPath, tc.requestedDomains, renewalThreshold)
+			needsRenewal, reason, _ := manager.CertificateNeedsRenewal(certPath, tc.requestedDomains, renewalThreshold)
 
 			// Determine expected needsRenewal based on expectedAction
 			expectedNeedsRenewal := (tc.expectedAction == "renew")
