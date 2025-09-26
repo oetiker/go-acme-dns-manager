@@ -1,6 +1,3 @@
-//go:build testutils
-// +build testutils
-
 package manager
 
 import (

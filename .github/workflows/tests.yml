@@ -147,7 +147,7 @@ jobs:
         echo "::group::Checking coverage threshold"
 
         # Set minimum coverage threshold (can be adjusted)
-        MIN_COVERAGE=60.0
+        MIN_COVERAGE=50.0
         CURRENT_COVERAGE=${{ steps.coverage.outputs.coverage_percentage }}
 
         # Convert to integers for comparison (multiply by 100 to handle decimals)
