@@ -153,7 +153,8 @@ func TestRunLego_RenewalWithoutCertificate(t *testing.T) {
 		t.Fatalf("Failed to create account store: %v", err)
 	}
 
-	// Try to renew a non-existent certificate - this should fail early before ACME operations
+	// Try to renew a non-existent certificate
+	// With the fix, renewal now checks ACME-DNS first (like init does), so it will fail on DNS check
 	err = RunLego(cfg, store, "renew", "nonexistent-cert", []string{"example.org"}, "rsa2048")
 
 	if err == nil {
@@ -161,10 +162,13 @@ func TestRunLego_RenewalWithoutCertificate(t *testing.T) {
 		return
 	}
 
-	// Should fail because certificate file doesn't exist, not because of ACME registration
+	// After the fix, renewal checks ACME-DNS first, so it might fail on DNS registration
+	// or it might fail on certificate not found, depending on the order of operations
 	if !containsString(err.Error(), "certificate file not found") &&
-		!containsString(err.Error(), "no such file") {
-		t.Errorf("Expected error about certificate file not found, got: %s", err.Error())
+		!containsString(err.Error(), "no such file") &&
+		!containsString(err.Error(), "failed to register ACME-DNS account") &&
+		!containsString(err.Error(), "ACME-DNS") {
+		t.Errorf("Expected error about certificate or ACME-DNS, got: %s", err.Error())
 	}
 }
 

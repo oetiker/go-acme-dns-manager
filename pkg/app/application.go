@@ -459,6 +459,9 @@ func (app *Application) LoadManagerConfig() (*manager.Config, error) {
 		return nil, fmt.Errorf("loading config file: %w", err)
 	}
 
+	// Apply mock server overrides if available (only in mock builds)
+	app.applyMockOverrides(cfg)
+
 	app.logger.Debug("Manager configuration loaded successfully")
 	return cfg, nil
 }

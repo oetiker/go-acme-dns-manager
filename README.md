@@ -76,6 +76,7 @@ Example: Your internal monitoring dashboard at `https://grafana.internal.example
 *   Supports manual certificate requests via command-line arguments (`cert-name@domain,...`).
 *   Supports automated renewals via config file (`auto_domains` section) and `-auto` flag.
 *   Automatically determines `init` or `renew` action based on certificate existence.
+*   Detects domain changes in existing certificates and obtains new certificates when domains are added or removed.
 *   Self-contained binary with minimal external dependencies.
 *   Configurable logging with support for different formats (Go, Emoji, Color, ASCII) and levels.
 *   Smart terminal detection to provide user-friendly output when attached to a TTY.

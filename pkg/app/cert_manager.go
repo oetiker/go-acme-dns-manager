@@ -332,6 +332,11 @@ func (cm *CertificateManager) renewCertificate(ctx context.Context, req CertRequ
 	// Call the manager's RunLego function to renew the certificate
 	err := cm.legoRunner(cm.config, cm.accountStore, "renew", req.Name, req.Domains, req.KeyType)
 	if err != nil {
+		// Check if this is just DNS setup needed (can happen if new domains were added)
+		if errors.Is(err, manager.ErrDNSSetupNeeded) {
+			// DNS setup instructions were already shown, this is a normal exit
+			return err // Return the error as-is to bubble up
+		}
 		return fmt.Errorf("failed to renew certificate %s: %w", req.Name, err)
 	}
 

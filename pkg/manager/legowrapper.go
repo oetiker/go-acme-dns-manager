@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -276,7 +278,8 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 	}
 
 	// Pre-check ACME-DNS setup for all domains BEFORE initializing Lego
-	if action == "init" {
+	// This needs to happen for both init AND renew, because renewal might add new domains
+	if action == "init" || action == "renew" {
 		setupInfo, err := PreCheckAcmeDNS(cfg, store, domainsToProcess)
 		if err != nil {
 			return err
@@ -436,59 +439,125 @@ func RunLego(cfg *Config, store *accountStore, action string, certName string, d
 			DefaultLogger.Warnf("Warning: failed to save certificate '%s': %v", certName, err)
 		}
 	case "renew":
-		// Renewal typically renews the *existing* certificate identified by its primary domain,
-		// which should cover all domains listed in the cert. Lego's Renew function handles this.
-		// We just need the primary domain from the list to load the existing cert resource.
-		primaryDomain := domainsToProcess[0]
-		DefaultLogger.Infof("Attempting to renew certificate associated with primary domain %s (covers: %v)", primaryDomain, domainsToProcess)
+		// When renewing, we need to check if the domain list has changed
+		// If it has, we can't use Lego's Renew() which keeps the same domains
+		// Instead, we need to use Obtain() to get a new certificate with all domains
+
+		DefaultLogger.Infof("Attempting to renew certificate %s for domains: %v", certName, domainsToProcess)
 
 		// Check if the certificate resource file exists for the certificate name.
-		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.json", certName)) // Use renamed field
+		metaPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.json", certName))
+		certPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.crt", certName))
+
+		// Check if certificate files exist
 		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
-			// Also check the .crt file for robustness
-			certPath := filepath.Join(cfg.CertStoragePath, "certificates", fmt.Sprintf("%s.crt", certName)) // Use renamed field
 			if _, err := os.Stat(certPath); os.IsNotExist(err) {
 				return fmt.Errorf("cannot renew: certificate file not found for certificate %s at %s (and %s). Run 'init' first?", certName, certPath, metaPath)
 			}
-			DefaultLogger.Warnf("Warning: Certificate metadata file %s missing, but certificate %s exists. Attempting renewal but might lack SANs.", metaPath, certPath)
-			// Proceed without existingCert, Lego might handle it? Or fail.
-			// Let's require the metadata for reliable renewal.
 			return fmt.Errorf("cannot renew: certificate metadata file not found at %s. Run 'init' again?", metaPath)
-
 		} else if err != nil {
 			return fmt.Errorf("cannot renew: error checking certificate metadata file %s: %w", metaPath, err)
 		}
 
-		// Lego's Renew function handles loading internally if paths are standard,
-		// but let's be explicit or ensure the internal storage points correctly.
-		// For now, assume Lego handles loading based on domain if storage is consistent.
-		// A more robust approach might load the cert resource manually.
-
-		renewOptions := certificate.RenewOptions{
-			// Days: 30, // Renew if expiring within 30 days (Lego default)
-			Bundle: true,
-		}
-
-		// Note: Lego's Renew function expects the *certificate resource*.
-		// We load it using the certificate name.
-		existingCert, err := LoadCertificateResource(cfg, certName) // Use certName and exported func
+		// Load the existing certificate to check its domains
+		existingCert, err := LoadCertificateResource(cfg, certName)
 		if err != nil {
 			return fmt.Errorf("failed to load existing certificate resource for '%s' for renewal: %w", certName, err)
 		}
 
-		newCertificates, err := client.Certificate.Renew(*existingCert, renewOptions.Bundle, renewOptions.MustStaple, renewOptions.PreferredChain)
+		// Check if the domain list has changed by comparing certificate domains with requested domains
+		// We need to parse the actual certificate to get its domains
+		certBytes, err := os.ReadFile(certPath)
 		if err != nil {
-			return fmt.Errorf("failed to renew certificate: %w", err)
+			return fmt.Errorf("failed to read certificate file for domain comparison: %w", err)
 		}
 
-		// Check if renewal actually occurred (Lego might return the old cert if still valid)
-		if newCertificates == nil || string(newCertificates.Certificate) == string(existingCert.Certificate) {
-			DefaultLogger.Info("Certificate renewal not required or did not result in a new certificate.")
-		} else {
-			DefaultLogger.Infof("Successfully renewed certificate '%s'!", certName)
-			// Pass certName to saveCertificates
+		block, _ := pem.Decode(certBytes)
+		if block == nil {
+			return fmt.Errorf("failed to decode PEM block from certificate")
+		}
+
+		x509Cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse certificate for domain comparison: %w", err)
+		}
+
+		// Compare domains - check if all requested domains are in the certificate
+		existingDomains := x509Cert.DNSNames
+		domainMismatch := false
+
+		// Check if any requested domain is missing from the certificate
+		for _, reqDomain := range domainsToProcess {
+			found := false
+			for _, certDomain := range existingDomains {
+				if reqDomain == certDomain {
+					found = true
+					break
+				}
+			}
+			if !found {
+				domainMismatch = true
+				DefaultLogger.Infof("Domain %s is not in the existing certificate, will obtain new certificate", reqDomain)
+				break
+			}
+		}
+
+		// Also check if certificate has extra domains not in the request
+		for _, certDomain := range existingDomains {
+			found := false
+			for _, reqDomain := range domainsToProcess {
+				if certDomain == reqDomain {
+					found = true
+					break
+				}
+			}
+			if !found {
+				domainMismatch = true
+				DefaultLogger.Infof("Certificate has extra domain %s not in the request, will obtain new certificate", certDomain)
+				break
+			}
+		}
+
+		// If domains have changed, we need to obtain a new certificate, not renew
+		if domainMismatch {
+			DefaultLogger.Infof("Domain list has changed, obtaining new certificate instead of renewing")
+
+			// ACME-DNS was already checked above for all domains
+			request := certificate.ObtainRequest{
+				Domains: domainsToProcess,
+				Bundle:  true,
+			}
+
+			newCertificates, err := client.Certificate.Obtain(request)
+			if err != nil {
+				return fmt.Errorf("failed to obtain new certificate with updated domains: %w", err)
+			}
+
+			DefaultLogger.Infof("Successfully obtained new certificate '%s' with updated domains!", certName)
 			if err := saveCertificates(cfg, certName, newCertificates); err != nil {
-				DefaultLogger.Warnf("Warning: failed to save renewed certificate '%s': %v", certName, err)
+				DefaultLogger.Warnf("Warning: failed to save new certificate '%s': %v", certName, err)
+			}
+		} else {
+			// Domains haven't changed, do a normal renewal
+			DefaultLogger.Info("Domain list unchanged, performing standard certificate renewal")
+
+			renewOptions := certificate.RenewOptions{
+				Bundle: true,
+			}
+
+			newCertificates, err := client.Certificate.Renew(*existingCert, renewOptions.Bundle, renewOptions.MustStaple, renewOptions.PreferredChain)
+			if err != nil {
+				return fmt.Errorf("failed to renew certificate: %w", err)
+			}
+
+			// Check if renewal actually occurred (Lego might return the old cert if still valid)
+			if newCertificates == nil || string(newCertificates.Certificate) == string(existingCert.Certificate) {
+				DefaultLogger.Info("Certificate renewal not required or did not result in a new certificate.")
+			} else {
+				DefaultLogger.Infof("Successfully renewed certificate '%s'!", certName)
+				if err := saveCertificates(cfg, certName, newCertificates); err != nil {
+					DefaultLogger.Warnf("Warning: failed to save renewed certificate '%s': %v", certName, err)
+				}
 			}
 		}
 	default:
