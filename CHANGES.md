@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Security fix bumps golang.org/x/crypto from 0.40.0 to 0.45.0.
 
 ## 0.9.1 - 2025-09-26
 ### Fixed
